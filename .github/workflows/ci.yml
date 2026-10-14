@@ -34,3 +34,6 @@ jobs:
 
       - name: Run unit and integration tests
         run: ./mvnw --batch-mode --no-transfer-progress verify
+
+      - name: Verify private containers and health transitions
+        run: python3 scripts/container-smoke.py

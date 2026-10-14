@@ -17,7 +17,7 @@ class FlywayMigrationIT {
 
     @Test
     void cleanMigrationIsRepeatableAndValidates() throws Exception {
-        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:18.6")) {
+        try (PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18.6")) {
             postgres.start();
             Flyway flyway = flywayFor(postgres);
 
@@ -32,7 +32,7 @@ class FlywayMigrationIT {
 
     @Test
     void rejectsMigrationChecksumMismatchInDisposableDatabase() throws Exception {
-        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:18.6")) {
+        try (PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18.6")) {
             postgres.start();
             Flyway flyway = flywayFor(postgres);
 
@@ -53,18 +53,18 @@ class FlywayMigrationIT {
             assertThat(flyway.validateWithResult().validationSuccessful).isFalse();
             assertThatThrownBy(flyway::validate)
                     .isInstanceOf(FlywayException.class)
-                    .hasMessageContainingIgnoringCase("checksum");
+                    .hasMessageContaining("checksum");
         }
     }
 
-    private static Flyway flywayFor(PostgreSQLContainer<?> postgres) {
+    private static Flyway flywayFor(PostgreSQLContainer postgres) {
         return Flyway.configure()
                 .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
                 .locations("classpath:db/migration")
                 .load();
     }
 
-    private static int successfulVersionOneCount(PostgreSQLContainer<?> postgres) throws Exception {
+    private static int successfulVersionOneCount(PostgreSQLContainer postgres) throws Exception {
         try (Connection connection = DriverManager.getConnection(
                 postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
                 Statement statement = connection.createStatement();

@@ -1,44 +1,93 @@
-# expense-api
+# Expense API
 
-HTTP API for household expense tracking. This repository currently contains the Spring Boot foundation: a Java 21 build, PostgreSQL, Flyway, and a health check.
+**A Spring Boot backend foundation for household expense tracking.**
 
-Authentication and the financial ledger are not implemented yet.
+[![CI](https://github.com/nayzawoo/expense-api/actions/workflows/ci.yml/badge.svg)](https://github.com/nayzawoo/expense-api/actions/workflows/ci.yml)
+![Java 21](https://img.shields.io/badge/Java-21-007396?logo=openjdk&logoColor=white)
+![Spring Boot 4.1.1](https://img.shields.io/badge/Spring%20Boot-4.1.1-6DB33F?logo=springboot&logoColor=white)
+![PostgreSQL 18](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 
-## Requirements
+A clean, testable starting point for a household finance API. The current implementation focuses on the application runtime, database connectivity, migrations, and automated verification.
 
-- Java 21
-- Docker, for the local database and integration tests
+> **Project status:** Foundation in place. Authentication, accounts, expenses, transfers, and the financial ledger are **not implemented yet**.
 
-## Local database
+## Tech stack
 
-Start PostgreSQL:
+| Area | Technology |
+| --- | --- |
+| Language & framework | Java 21 · Spring Boot 4.1.1 · Spring MVC |
+| Database | PostgreSQL 18 · Flyway |
+| Local development | Docker Compose · Maven Wrapper |
+| Testing | JUnit · Spring Boot Test · Testcontainers |
+| Continuous integration | GitHub Actions · `./mvnw verify` |
 
-```sh
+## Quick start
+
+**Prerequisites:** Java 21 and Docker with the engine running. Ensure ports `5432` and `8080` are available.
+
+**1. Start PostgreSQL**
+
+```bash
 docker compose up -d
 ```
 
-The Compose service uses database `expense`, user `expense`, and password `local-dev-only`. Those values are local defaults. Set `DATABASE_URL`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD` when running anywhere else.
+**2. Run the API**
 
-Stop it with `docker compose down`. Add `-v` to remove the local data volume.
-
-## Run
-
-```sh
+```bash
 ./mvnw spring-boot:run
 ```
 
-Health check: <http://localhost:8080/actuator/health>
+**3. Check application health**
 
-The response reports overall status only.
+```bash
+curl --fail http://localhost:8080/actuator/health
+```
 
-## Test
+A healthy application returns HTTP `200` with `"status": "UP"`. The health endpoint does not expose detailed component information by default.
 
-```sh
+## Configuration
+
+The application reads its database settings from environment variables, with defaults for **local development only**.
+
+| Variable | Local default |
+| --- | --- |
+| `DATABASE_URL` | `jdbc:postgresql://localhost:5432/expense` |
+| `DATABASE_USERNAME` | `expense` |
+| `DATABASE_PASSWORD` | `local-dev-only` |
+
+These values match `compose.yaml` and are **not suitable for production**. Supply your own credentials and database URL outside local development. Do not commit real credentials or `.env` files.
+
+Stop the local database with `docker compose down`. To delete its stored data, run `docker compose down -v`.
+
+## Testing & CI
+
+```bash
 ./mvnw verify
 ```
 
-The integration test starts its own PostgreSQL container. Docker must be running. The test does not use the Compose database.
+Maven runs the configured test phases, including the PostgreSQL integration test. **Docker must be running**, but you do not need to start the Compose database first: Testcontainers creates its own PostgreSQL container.
 
-## Layout
+The integration test verifies the health endpoint and confirms that Flyway applied the baseline migration.
 
-Application code lives under `com.nayzawoo.expense`, with one package per feature. Flyway migrations live in `src/main/resources/db/migration`. The baseline migration does not create business tables.
+[![CI](https://github.com/nayzawoo/expense-api/actions/workflows/ci.yml/badge.svg)](https://github.com/nayzawoo/expense-api/actions/workflows/ci.yml) **GitHub Actions** runs the same Maven verification on pull requests and pushes to `main`. The badge reflects the workflow status for the default branch once CI is merged.
+
+## Project structure
+
+```text
+src/
+├── main/
+│   ├── java/com/nayzawoo/expense/
+│   │   ├── ExpenseApiApplication.java
+│   │   └── health/ApiHealthIndicator.java
+│   └── resources/
+│       ├── application.yml
+│       └── db/migration/V1__baseline.sql
+└── test/
+    └── java/com/nayzawoo/expense/health/HealthEndpointIT.java
+
+compose.yaml                  # Local PostgreSQL
+pom.xml                       # Build and dependencies
+.github/workflows/ci.yml      # Automated verification
+```
+
+The baseline Flyway migration intentionally creates **no business tables**. Domain and security features will be added in focused, tested changes.

@@ -7,6 +7,10 @@ spring:
     password: ${DATABASE_PASSWORD:local-dev-only}
   flyway:
     locations: classpath:db/migration
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
 
 management:
   endpoints:

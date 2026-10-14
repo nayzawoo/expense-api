@@ -16,6 +16,7 @@ A clean, testable starting point for a household finance API. The current implem
 | Area | Technology |
 | --- | --- |
 | Language & framework | Java 21 · Spring Boot 4.1.1 · Spring MVC |
+| Persistence | Spring Data JPA · Hibernate (validate only) |
 | Database | PostgreSQL 18 · Flyway |
 | Local development | Docker Compose · Maven Wrapper |
 | Testing | JUnit · Spring Boot Test · Testcontainers |
@@ -90,4 +91,4 @@ pom.xml                       # Build and dependencies
 .github/workflows/ci.yml      # Automated verification
 ```
 
-The baseline Flyway migration intentionally creates **no business tables**. Domain and security features will be added in focused, tested changes.
+The baseline Flyway migration intentionally creates **no business tables**. Hibernate runs with `ddl-auto=validate` and Open Session in View disabled; Flyway is the only component allowed to change the database schema. The PostgreSQL integration tests verify the JPA factory initializes without creating tables. Domain and security features will be added in focused, tested changes.

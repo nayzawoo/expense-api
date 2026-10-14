@@ -2,12 +2,14 @@ package com.nayzawoo.expense.health;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import jakarta.persistence.EntityManagerFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -35,6 +37,12 @@ class HealthEndpointIT {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
+
+    @Autowired
+    private Environment environment;
+
     @Test
     void healthIsUpAfterBaselineMigration() {
         ResponseEntity<String> response = restTemplate.getForEntity("/actuator/health", String.class);
@@ -48,5 +56,22 @@ class HealthEndpointIT {
                 "select count(*) from flyway_schema_history where version = '1' and success",
                 Long.class);
         assertThat(applied).isEqualTo(1L);
+    }
+
+    @Test
+    void jpaValidatesFlywaySchemaWithoutCreatingApplicationTables() {
+        assertThat(entityManagerFactory.isOpen()).isTrue();
+        assertThat(entityManagerFactory.getMetamodel().getEntities()).isEmpty();
+        assertThat(environment.getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
+        assertThat(environment.getProperty("spring.jpa.open-in-view")).isEqualTo("false");
+
+        Integer unexpectedTables = jdbcTemplate.queryForObject("""
+                SELECT count(*)
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_type = 'BASE TABLE'
+                  AND table_name <> 'flyway_schema_history'
+                """, Integer.class);
+        assertThat(unexpectedTables).isZero();
     }
 }

@@ -5,6 +5,12 @@ spring:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/expense}
     username: ${DATABASE_USERNAME:expense}
     password: ${DATABASE_PASSWORD:local-dev-only}
+    hikari:
+      connection-timeout: 2000
+      validation-timeout: 1000
+      data-source-properties:
+        connectTimeout: 2
+        socketTimeout: 3
   flyway:
     locations: classpath:db/migration
   jpa:
@@ -21,3 +27,10 @@ management:
     health:
       show-components: never
       show-details: never
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+        liveness:
+          include: livenessState

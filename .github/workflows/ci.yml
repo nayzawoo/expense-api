@@ -17,7 +17,7 @@ jobs:
   verify:
     name: Maven verify
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Check out source
@@ -37,3 +37,52 @@ jobs:
 
       - name: Verify private containers and health transitions
         run: python3 scripts/container-smoke.py
+
+      - name: Verify security gate failure cases
+        run: python3 .github/scripts/test-security-scan.py
+
+      - name: Install checksum-verified Trivy
+        run: bash .github/scripts/install-trivy.sh "$RUNNER_TEMP/security-tools"
+
+      - name: Resolve compile, runtime and test dependencies for scanning
+        run: >-
+          ./mvnw --batch-mode --no-transfer-progress
+          org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy-dependencies
+          -DincludeScope=test -DoutputDirectory=target/security-dependencies
+
+      - name: Scan resolved Maven dependencies
+        id: dependencies
+        run: >-
+          python3 .github/scripts/security-scan.py "$RUNNER_TEMP/security-tools/trivy"
+          dependencies target/security-dependencies target/security-reports/dependencies.json
+
+      - name: Build runtime image for scanning
+        if: ${{ !cancelled() && steps.dependencies.outcome != 'skipped' }}
+        run: docker build --tag expense-api-security:ci .
+
+      - name: Scan actual runtime image
+        if: ${{ !cancelled() && steps.dependencies.outcome != 'skipped' }}
+        run: >-
+          python3 .github/scripts/security-scan.py "$RUNNER_TEMP/security-tools/trivy"
+          image expense-api-security:ci target/security-reports/image.json
+
+      - name: Retain vulnerability reports
+        if: ${{ !cancelled() && steps.dependencies.outcome != 'skipped' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vulnerability-reports
+          path: target/security-reports/*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  gate:
+    name: ci/gate
+    if: ${{ always() }}
+    needs: [verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require complete successful verification
+        env:
+          VERIFY_RESULT: ${{ needs.verify.result }}
+        run: test "$VERIFY_RESULT" = success

@@ -44,11 +44,11 @@ jobs:
       - name: Install checksum-verified Trivy
         run: bash .github/scripts/install-trivy.sh "$RUNNER_TEMP/security-tools"
 
-      - name: Resolve compile, runtime and test dependencies for scanning
+      - name: Resolve compile and runtime dependencies for scanning
         run: >-
           ./mvnw --batch-mode --no-transfer-progress
           org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy-dependencies
-          -DincludeScope=test -DoutputDirectory=target/security-dependencies
+          -DincludeScope=runtime -DoutputDirectory=target/security-dependencies
 
       - name: Scan resolved Maven dependencies
         id: dependencies

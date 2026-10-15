@@ -104,7 +104,7 @@ It deletes only its own disposable project volume. Python 3 and Docker Compose v
 are required. GitHub Actions runs both commands on pull requests and main.
 
 CI also installs Trivy 0.76.0 from a SHA-256-verified release archive and scans
-resolved compile/runtime/test dependency JARs (Maven Dependency Plugin 3.8.1) and
+resolved compile and runtime dependency JARs (Maven Dependency Plugin 3.8.1) and
 the actual locally built runtime image, including OS and bundled Java packages.
 Dependency archives use Trivy's `rootfs` mode with library packages only; its
 `filesystem` mode does not analyze JAR archives.
@@ -121,8 +121,8 @@ package/version/finding summaries appear in job logs. Scanner version and binary
 digest are pinned; vulnerability and Java databases update at scan time, so findings
 can change between runs. JAR identification and advisory databases have coverage
 limits; a passing scan does not establish exploitability or absence of all flaws.
-Maven build plugins, host tools, the database service image and the intermediate
-build image are outside these two scan targets. There is no deployment or automatic
+Maven build plugins, test-only libraries, host tools, the database service image and
+the intermediate build image are outside these two scan targets. There is no deployment or automatic
 dependency/image upgrade in this workflow.
 
 Flyway owns DDL; Hibernate validates and Open Session in View is disabled. The

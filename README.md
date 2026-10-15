@@ -103,6 +103,28 @@ exposure, container health transitions and persistence across container recreati
 It deletes only its own disposable project volume. Python 3 and Docker Compose v2
 are required. GitHub Actions runs both commands on pull requests and main.
 
+CI also installs Trivy 0.76.0 from a SHA-256-verified release archive and scans
+resolved compile and runtime dependency JARs (Maven Dependency Plugin 3.8.1) and
+the actual locally built runtime image, including OS and bundled Java packages.
+Dependency archives use Trivy's `rootfs` mode with library packages only; its
+`filesystem` mode does not analyze JAR archives.
+The Docker build reuses the smoke-test build cache; Maven tests and Compose smoke
+run once. HIGH and CRITICAL findings, including unfixed findings, block the gate
+pending applicability review and a separately reviewed remediation. No findings
+are automatically suppressed. Lower and unknown severities remain in reports for
+triage. Scan/download errors, malformed reports and absent Java/OS package coverage
+also fail. Controlled policy tests exercise severe findings and scanner failures.
+The final `ci/gate` fails on failed, skipped or canceled verification.
+
+JSON scan reports are retained as Actions artifacts for seven days; concise
+package/version/finding summaries appear in job logs. Scanner version and binary
+digest are pinned; vulnerability and Java databases update at scan time, so findings
+can change between runs. JAR identification and advisory databases have coverage
+limits; a passing scan does not establish exploitability or absence of all flaws.
+Maven build plugins, test-only libraries, host tools, the database service image and
+the intermediate build image are outside these two scan targets. There is no deployment or automatic
+dependency/image upgrade in this workflow.
+
 Flyway owns DDL; Hibernate validates and Open Session in View is disabled. The
 baseline migration contains no business tables. Container builds use pinned Java 21
 base images and the Maven Wrapper; tests run separately rather than inside the image

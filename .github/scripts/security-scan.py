@@ -57,7 +57,8 @@ def scan(binary, kind, target, output):
     output.unlink(missing_ok=True)
     # Do not inherit configurable suppression, DB-skip or scanner selection from the environment.
     environment = {key: value for key, value in os.environ.items() if not key.startswith("TRIVY_")}
-    command = [binary, "filesystem" if kind == "dependencies" else "image",
+    # rootfs enables archive/JAR analysis; filesystem mode intentionally excludes JARs.
+    command = [binary, "rootfs" if kind == "dependencies" else "image",
                "--config", "", "--ignorefile", "", "--scanners", "vuln",
                "--pkg-types", "library" if kind == "dependencies" else "os,library",
                "--list-all-pkgs", "--severity", ",".join(sorted(SEVERITIES)),

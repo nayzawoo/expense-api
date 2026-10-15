@@ -106,6 +106,8 @@ are required. GitHub Actions runs both commands on pull requests and main.
 CI also installs Trivy 0.76.0 from a SHA-256-verified release archive and scans
 resolved compile/runtime/test dependency JARs (Maven Dependency Plugin 3.8.1) and
 the actual locally built runtime image, including OS and bundled Java packages.
+Dependency archives use Trivy's `rootfs` mode with library packages only; its
+`filesystem` mode does not analyze JAR archives.
 The Docker build reuses the smoke-test build cache; Maven tests and Compose smoke
 run once. HIGH and CRITICAL findings, including unfixed findings, block the gate
 pending applicability review and a separately reviewed remediation. No findings

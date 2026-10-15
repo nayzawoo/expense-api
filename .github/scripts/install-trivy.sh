@@ -13,6 +13,6 @@ curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
   --output "$temporary/trivy.tar.gz"
 printf '%s  %s\n' "$digest" "$temporary/trivy.tar.gz" | sha256sum --check --strict
 mkdir -p "$destination"
-tar -xzf "$temporary/trivy.tar.gz" -C "$destination" trivy
+tar --no-same-owner -xzf "$temporary/trivy.tar.gz" -C "$destination" trivy
 "$destination/trivy" --version
 "$destination/trivy" --version | head -n 1 | grep -Fx "Version: $version"

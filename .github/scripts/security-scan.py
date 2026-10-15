@@ -27,7 +27,9 @@ def assess(report, kind):
         if entries:
             classes.add(result.get("Class"))
             packages += len(entries)
-        vulnerabilities = result.get("Vulnerabilities") or []
+        vulnerabilities = result.get("Vulnerabilities")
+        if vulnerabilities is None:
+            vulnerabilities = []
         if not isinstance(vulnerabilities, list):
             raise ValueError("Invalid vulnerability inventory")
         for item in vulnerabilities:

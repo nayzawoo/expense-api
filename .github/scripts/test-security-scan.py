@@ -38,6 +38,11 @@ class PolicyTests(unittest.TestCase):
         value["Results"].pop()
         with self.assertRaises(ValueError):
             SCAN.assess(value, "image")
+        for malformed in ({}, False, 0, ""):
+            value = report()
+            value["Results"][0]["Vulnerabilities"] = malformed
+            with self.subTest(malformed=malformed), self.assertRaises(ValueError):
+                SCAN.assess(value, "image")
 
     def test_scanner_error_and_missing_output_block(self):
         with tempfile.TemporaryDirectory() as temporary:

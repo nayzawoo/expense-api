@@ -77,8 +77,17 @@ Active members may create transfers under
 writes equal-and-opposite source/destination postings and bumps both account
 `balance_version` values. Members may list and read current POSTED transfers.
 The creator or an admin may void a POSTED transfer with `If-Match` and an
-`Idempotency-Key`. Transfer has no replace route. Entry-options, filtered list
-summaries, and reconciliation are not included yet.
+`Idempotency-Key`. Transfer has no replace route.
+
+Admins may reconcile an ACTIVE account under
+`/api/v1/households/{householdId}/accounts/{accountId}/reconciliations` with an
+`Idempotency-Key`. The server assigns household-local today, locks the account,
+checks `expectedBalanceVersion`, and posts an ADJUSTMENT for
+`observed - current` (zero delta and out-of-range delta are rejected; stale
+version is 409). Admins may list and read adjustments under
+`/api/v1/households/{householdId}/adjustments` and void a POSTED adjustment with
+`If-Match` and an `Idempotency-Key`. Member account ledger paging and reports
+are not included yet.
 
 Recover an existing active admin without HTTP by supplying a runtime password:
 

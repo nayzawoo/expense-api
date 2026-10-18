@@ -82,6 +82,11 @@ class AppUser {
     }
 
     void updateStatus(String status) {
+        if ("DISABLED".equals(status) && !"DISABLED".equals(this.status)) {
+            this.status = "DISABLED";
+            this.securityVersion += 1;
+            return;
+        }
         this.status = status;
     }
 

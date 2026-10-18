@@ -96,12 +96,12 @@ Adjustment amount and date are visible; reconciliation reason text and
 actual-balance snapshots are not.
 
 Active members may call
-`GET /api/v1/households/{householdId}/reports/dashboard`. The core snapshot
-returns period totals (`expense`/`income`/`net`), account balances, and recent
-expense/income/transfer activity. Transfers and adjustments do not inflate
-income or expense. Pace, category, beneficiary breakdowns, coverage metadata,
-and analytics remain deferred. Entry-options and filtered list summaries are
-not included yet.
+`GET /api/v1/households/{householdId}/reports/dashboard`. The snapshot returns
+period totals (`expense`/`income`/`net`), account balances, recent
+expense/income/transfer activity, spending pace, category breakdown/changes,
+and beneficiary spending. Transfers and adjustments do not inflate income or
+expense. Five-month averages, coverage metadata, and analytics remain deferred.
+Entry-options and filtered list summaries are not included yet.
 
 Recover an existing active admin without HTTP by supplying a runtime password:
 

@@ -13,7 +13,7 @@ public final class Money {
     public static BigDecimal parseSignedOpening(String raw) {
         BigDecimal value = parseCanonicalInteger(raw);
         if (value.abs().compareTo(MAX_ABS) > 0) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "MONEY_OUT_OF_RANGE");
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "MONEY_OUT_OF_RANGE");
         }
         return value;
     }
@@ -30,25 +30,25 @@ public final class Money {
 
     private static BigDecimal parseCanonicalInteger(String raw) {
         if (raw == null || raw.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_MONEY");
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_MONEY");
         }
         String text = raw.trim();
         if (!text.matches("-?[0-9]+")) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "MONEY_FRACTION_NOT_ALLOWED");
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "MONEY_FRACTION_NOT_ALLOWED");
         }
         if (text.equals("-0")) {
             return BigDecimal.ZERO;
         }
         if (text.length() > 1 && text.charAt(0) == '0') {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_MONEY");
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_MONEY");
         }
         if (text.length() > 2 && text.startsWith("-0")) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_MONEY");
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_MONEY");
         }
         try {
             return new BigDecimal(text);
         } catch (NumberFormatException ex) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_MONEY");
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_MONEY");
         }
     }
 }

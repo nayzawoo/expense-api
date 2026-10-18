@@ -90,7 +90,7 @@ class AccountService {
         BigDecimal openingAmount = Money.parseSignedOpening(openingAmountRaw);
         LocalDate today = LocalDate.now(clock.withZone(ZoneId.of(locked.timezone())));
         if (openedOn.isAfter(today)) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "FUTURE_DATE");
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "FUTURE_DATE");
         }
         String trimmedName = name.trim();
         String trimmedOwner = ownerLabel.trim();

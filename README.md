@@ -3,9 +3,9 @@
 A Java 21 / Spring Boot 4.1.1 backend foundation using Spring MVC, JPA validation,
 Flyway and PostgreSQL 18.6. One household, session login, password change,
 household user administration, profile self-service, admin account creation with
-an immutable opening entry, category/beneficiary metadata, and expense create,
-list/detail, replace, and void are implemented. Income, transfer, and the browser
-application are not.
+an immutable opening entry, category/beneficiary metadata, expense create,
+list/detail, replace, and void, and income create, list/detail, and void are
+implemented. Transfer and the browser application are not.
 
 Session login uses `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me`,
 and `POST /api/v1/auth/logout`. Login, logout, and `PUT /api/v1/password` require the CSRF
@@ -62,8 +62,14 @@ Active members may create expenses under
 writes an immutable EXPENSE revision and a debit posting, and increments the
 account `balance_version`. Members may list and read current POSTED expenses.
 The creator or an admin may replace or void a POSTED expense with `If-Match` and
-an `Idempotency-Key`; compensation postings retain history. Entry-options and
-filtered list summaries are not included yet.
+an `Idempotency-Key`; compensation postings retain history.
+
+Active members may create incomes under
+`/api/v1/households/{householdId}/incomes` with an `Idempotency-Key`. Creation
+writes an immutable INCOME revision and a credit posting (no category). Members
+may list and read current POSTED incomes. The creator or an admin may void a
+POSTED income with `If-Match` and an `Idempotency-Key`. Income has no replace
+route. Entry-options, filtered list summaries, and transfers are not included yet.
 
 Recover an existing active admin without HTTP by supplying a runtime password:
 

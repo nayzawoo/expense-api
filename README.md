@@ -10,10 +10,17 @@ member account ledger paging, member dashboard reads, and a member analytics cor
 read are implemented. The browser application is not.
 
 Session login uses `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me`,
-and `POST /api/v1/auth/logout`. Login, logout, and `PUT /api/v1/password` require the CSRF
-header from the bootstrap response. Successful login rotates the session id and replaces the
-anonymous CSRF token; callers must fetch a fresh CSRF token before the next write. The session
-cookie is `expense-session`, HttpOnly, and SameSite Lax. A login ends 30 days after it starts.
+and `POST /api/v1/auth/logout`. There is no bearer or API-token login. Login, logout, and
+`PUT /api/v1/password` require the CSRF header from the bootstrap response. Successful login
+rotates the session id and replaces the anonymous CSRF token; callers must fetch a fresh CSRF
+token before the next write. The session cookie is `expense-session`, HttpOnly, and SameSite
+Lax. Browser clients must send credentials (`credentials: 'include'` / `withCredentials`) so
+the session cookie is included. A login ends 30 days after it starts.
+
+Local credentialed CORS is enabled for `http://localhost:4200` and `http://127.0.0.1:4200`
+under `expense.cors.allowed-origins`. Allowed request headers include `X-CSRF-TOKEN`,
+`Idempotency-Key`, and `If-Match`. Set that list to empty (or omit non-local origins) when
+cross-origin browser access is not intended.
 Logical idle expiry is 7 days from the last qualifying activity and is separate from JDBC
 last-access; `POST /api/v1/auth/activity` renews that idle deadline when CSRF-authenticated and
 not under the temporary-password restriction. Passive `GET /auth/me` and CSRF bootstrap do not

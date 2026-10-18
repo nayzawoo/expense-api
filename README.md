@@ -4,9 +4,9 @@ A Java 21 / Spring Boot 4.1.1 backend foundation using Spring MVC, JPA validatio
 Flyway and PostgreSQL 18.6. One household, session login, password change,
 household user administration, profile self-service, admin account creation with
 an immutable opening entry, category/beneficiary metadata, expense create,
-list/detail, replace, and void, income create/list/detail/void, and transfer
-create/list/detail/void are implemented. Reconciliation and the browser
-application are not.
+list/detail, replace, and void, income create/list/detail/void, transfer
+create/list/detail/void, and admin reconciliation with adjustment list/detail/void
+are implemented. The browser application is not.
 
 Session login uses `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me`,
 and `POST /api/v1/auth/logout`. Login, logout, and `PUT /api/v1/password` require the CSRF
@@ -77,8 +77,16 @@ Active members may create transfers under
 writes equal-and-opposite source/destination postings and bumps both account
 `balance_version` values. Members may list and read current POSTED transfers.
 The creator or an admin may void a POSTED transfer with `If-Match` and an
-`Idempotency-Key`. Transfer has no replace route. Entry-options, filtered list
-summaries, and reconciliation are not included yet.
+`Idempotency-Key`. Transfer has no replace route.
+
+An admin may reconcile an ACTIVE account under
+`/api/v1/households/{householdId}/accounts/{accountId}/reconciliations` with an
+`Idempotency-Key`. The server assigns household-local today, checks
+`expectedBalanceVersion`, writes a signed ADJUSTMENT for the delta with immutable
+balance snapshots, and bumps `balance_version`. Admins may list and read
+adjustments under `/api/v1/households/{householdId}/adjustments` and void a
+POSTED adjustment with `If-Match` and an `Idempotency-Key`. Member ledger paging,
+entry-options, filtered list summaries, and reports are not included yet.
 
 Recover an existing active admin without HTTP by supplying a runtime password:
 

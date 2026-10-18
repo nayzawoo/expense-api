@@ -43,16 +43,19 @@ class ReportService {
         if (asOf.isAfter(today)) {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "FUTURE_DATE");
         }
-        PeriodView period = currentPeriod(asOf);
-        PeriodView comparison = comparisonPeriod(asOf);
+        List<AccountOpening> openings = accountOpenings(locked.householdId());
+        PeriodView period = currentPeriod(asOf, openings);
+        PeriodView comparison = comparisonPeriod(asOf, openings);
         BigDecimal expense = flowTotal(locked.householdId(), "EXPENSE", period.from(), period.to());
         BigDecimal income = flowTotal(locked.householdId(), "INCOME", period.from(), period.to());
         BigDecimal previousExpense =
                 flowTotal(locked.householdId(), "EXPENSE", comparison.from(), comparison.to());
-        BigDecimal net = income.subtract(expense);
-        BigDecimal expenseDifference = expense.subtract(previousExpense);
-        String direction = directionOf(expenseDifference);
-        BigDecimal expenseDifferencePercent = percentOrNull(expenseDifference, previousExpense);
+        boolean comparisonsComplete = period.coverage().complete() && comparison.coverage().complete();
+        BigDecimal expenseDifference = comparisonsComplete ? expense.subtract(previousExpense) : null;
+        String direction = comparisonsComplete ? directionOf(expenseDifference) : null;
+        BigDecimal expenseDifferencePercent =
+                comparisonsComplete ? percentOrNull(expenseDifference, previousExpense) : null;
+        String elapsedDayAverage = period.coverage().complete() ? elapsedDayAverage(expense, asOf) : null;
         List<AccountBalanceView> allAccounts = accountBalances(locked.householdId(), asOf);
         BigDecimal totalBalance = allAccounts.stream()
                 .map(AccountBalanceView::balanceValue)
@@ -79,6 +82,7 @@ class ReportService {
                 asOf,
                 period,
                 comparison,
+                balanceCoverage(openings, asOf),
                 Money.format(totalBalance),
                 preview.stream().map(AccountBalanceView::toResponse).toList(),
                 overview(
@@ -88,7 +92,8 @@ class ReportService {
                         expenseDifference,
                         expenseDifferencePercent,
                         direction,
-                        null),
+                        null,
+                        elapsedDayAverage),
                 pace,
                 categoryBreakdown,
                 categoryChanges,
@@ -103,16 +108,21 @@ class ReportService {
         if (asOf.isAfter(today)) {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "FUTURE_DATE");
         }
-        PeriodView period = currentPeriod(asOf);
-        PeriodView comparison = comparisonPeriod(asOf);
+        List<AccountOpening> openings = accountOpenings(locked.householdId());
+        PeriodView period = currentPeriod(asOf, openings);
+        PeriodView comparison = comparisonPeriod(asOf, openings);
         BigDecimal expense = flowTotal(locked.householdId(), "EXPENSE", period.from(), period.to());
         BigDecimal income = flowTotal(locked.householdId(), "INCOME", period.from(), period.to());
         BigDecimal previousExpense =
                 flowTotal(locked.householdId(), "EXPENSE", comparison.from(), comparison.to());
-        BigDecimal expenseDifference = expense.subtract(previousExpense);
-        BigDecimal expenseDifferencePercent = percentOrNull(expenseDifference, previousExpense);
-        List<LocalDate> openings = accountOpenedOns(locked.householdId());
-        String fiveMonthAverage = previousFiveMonthAverage(locked.householdId(), asOf, openings);
+        boolean comparisonsComplete = period.coverage().complete() && comparison.coverage().complete();
+        BigDecimal expenseDifference = comparisonsComplete ? expense.subtract(previousExpense) : null;
+        BigDecimal expenseDifferencePercent =
+                comparisonsComplete ? percentOrNull(expenseDifference, previousExpense) : null;
+        String direction = comparisonsComplete ? directionOf(expenseDifference) : null;
+        String elapsedDayAverage = period.coverage().complete() ? elapsedDayAverage(expense, asOf) : null;
+        List<LocalDate> openedOns = openings.stream().map(AccountOpening::openedOn).toList();
+        String fiveMonthAverage = previousFiveMonthAverage(locked.householdId(), asOf, openedOns);
         Map<UUID, NamedAmount> currentByCategory =
                 expenseByCategory(locked.householdId(), period.from(), period.to());
         Map<UUID, NamedAmount> previousByCategory =
@@ -123,15 +133,17 @@ class ReportService {
                 asOf,
                 period,
                 comparison,
+                balanceCoverage(openings, asOf),
                 overview(
                         expense,
                         income,
                         previousExpense,
                         expenseDifference,
                         expenseDifferencePercent,
-                        directionOf(expenseDifference),
-                        fiveMonthAverage),
-                monthlyTrend(locked.householdId(), asOf, openings),
+                        direction,
+                        fiveMonthAverage,
+                        elapsedDayAverage),
+                monthlyTrend(locked.householdId(), asOf, openedOns),
                 categoryBreakdown(currentByCategory, expense),
                 categoryChanges(currentByCategory, previousByCategory),
                 null);
@@ -144,17 +156,36 @@ class ReportService {
             BigDecimal expenseDifference,
             BigDecimal expenseDifferencePercent,
             String direction,
-            String previousFiveMonthAverage) {
+            String previousFiveMonthAverage,
+            String elapsedDayAverage) {
         return new OverviewView(
                 Money.format(expense),
                 Money.format(income),
                 Money.format(income.subtract(expense)),
                 Money.format(previousExpense),
-                Money.format(expenseDifference),
+                expenseDifference == null ? null : Money.format(expenseDifference),
                 expenseDifferencePercent == null ? null : expenseDifferencePercent.toPlainString(),
                 direction,
                 previousFiveMonthAverage,
-                null);
+                elapsedDayAverage);
+    }
+
+    private static String elapsedDayAverage(BigDecimal expense, LocalDate asOf) {
+        int elapsedDays = asOf.getDayOfMonth();
+        return Money.format(expense.divide(new BigDecimal(elapsedDays), 0, RoundingMode.HALF_EVEN));
+    }
+
+    private static BalanceCoverageResponse balanceCoverage(List<AccountOpening> openings, LocalDate asOf) {
+        LocalDate from = openings.stream()
+                .map(AccountOpening::openedOn)
+                .min(LocalDate::compareTo)
+                .orElse(null);
+        List<String> omitted = openings.stream()
+                .filter(opening -> opening.openedOn().isAfter(asOf))
+                .sorted(Comparator.comparing(AccountOpening::id))
+                .map(opening -> opening.id().toString())
+                .toList();
+        return new BalanceCoverageResponse(from == null ? null : from.toString(), omitted.isEmpty(), omitted);
     }
 
     private List<MonthTrendResponse> monthlyTrend(UUID householdId, LocalDate asOf, List<LocalDate> openings) {
@@ -195,10 +226,10 @@ class ReportService {
         return Money.format(sum.divide(new BigDecimal("5"), 0, RoundingMode.HALF_EVEN));
     }
 
-    private List<LocalDate> accountOpenedOns(UUID householdId) {
+    private List<AccountOpening> accountOpenings(UUID householdId) {
         return jdbc.query(
-                "SELECT opened_on FROM account WHERE household_id = ?",
-                (rs, rowNum) -> rs.getDate(1).toLocalDate(),
+                "SELECT id, opened_on FROM account WHERE household_id = ?",
+                (rs, rowNum) -> new AccountOpening(rs.getObject(1, UUID.class), rs.getDate(2).toLocalDate()),
                 householdId);
     }
 
@@ -212,6 +243,23 @@ class ReportService {
             }
         }
         return true;
+    }
+
+    private static boolean intervalCovered(List<AccountOpening> openings, LocalDate intervalStart) {
+        if (openings.isEmpty()) {
+            return false;
+        }
+        for (AccountOpening opening : openings) {
+            if (opening.openedOn().isAfter(intervalStart)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static PeriodCoverage coverageFor(LocalDate from, LocalDate to, List<AccountOpening> openings) {
+        boolean complete = intervalCovered(openings, from);
+        return new PeriodCoverage(from, to, complete, complete ? null : "ACCOUNT_OPENING_GAP");
     }
 
     private List<PacePointResponse> spendingPace(
@@ -524,14 +572,17 @@ class ReportService {
         return new RefView(id, name);
     }
 
-    private static PeriodView currentPeriod(LocalDate asOf) {
-        return new PeriodView(asOf.withDayOfMonth(1), asOf);
+    private static PeriodView currentPeriod(LocalDate asOf, List<AccountOpening> openings) {
+        LocalDate from = asOf.withDayOfMonth(1);
+        return new PeriodView(from, asOf, coverageFor(from, asOf, openings));
     }
 
-    private static PeriodView comparisonPeriod(LocalDate asOf) {
+    private static PeriodView comparisonPeriod(LocalDate asOf, List<AccountOpening> openings) {
         YearMonth previous = YearMonth.from(asOf).minusMonths(1);
         int day = Math.min(asOf.getDayOfMonth(), previous.lengthOfMonth());
-        return new PeriodView(previous.atDay(1), previous.atDay(day));
+        LocalDate from = previous.atDay(1);
+        LocalDate to = previous.atDay(day);
+        return new PeriodView(from, to, coverageFor(from, to, openings));
     }
 
     private static String directionOf(BigDecimal difference) {
@@ -569,6 +620,7 @@ class ReportService {
             LocalDate asOf,
             PeriodView period,
             PeriodView comparisonPeriod,
+            BalanceCoverageResponse balanceCoverage,
             String totalBalance,
             List<AccountBalanceResponse> accounts,
             OverviewView overview,
@@ -584,6 +636,7 @@ class ReportService {
             LocalDate asOf,
             PeriodView period,
             PeriodView comparisonPeriod,
+            BalanceCoverageResponse balanceCoverage,
             OverviewView overview,
             List<MonthTrendResponse> monthlyTrend,
             List<CategoryBreakdownResponse> categoryBreakdown,
@@ -592,9 +645,15 @@ class ReportService {
 
     record MonthTrendResponse(String month, String expense, boolean isPartial, String coverage) {}
 
-    record PeriodView(LocalDate from, LocalDate to) {
+    record PeriodView(LocalDate from, LocalDate to, PeriodCoverage coverage) {
         PeriodResponse toResponse() {
-            return new PeriodResponse(from.toString(), to.toString());
+            return new PeriodResponse(from.toString(), to.toString(), coverage.toResponse());
+        }
+    }
+
+    record PeriodCoverage(LocalDate from, LocalDate to, boolean complete, String reason) {
+        PeriodCoverageResponse toResponse() {
+            return new PeriodCoverageResponse(from.toString(), to.toString(), complete, reason);
         }
     }
 
@@ -648,7 +707,11 @@ class ReportService {
         }
     }
 
-    record PeriodResponse(String from, String to) {}
+    record PeriodResponse(String from, String to, PeriodCoverageResponse coverage) {}
+
+    record PeriodCoverageResponse(String from, String to, boolean complete, String reason) {}
+
+    record BalanceCoverageResponse(String from, boolean complete, List<String> omittedAccountIds) {}
 
     record AccountBalanceResponse(String id, String name, String balance, boolean negativeBalanceWarning) {}
 
@@ -683,6 +746,8 @@ class ReportService {
             RefResponse destinationAccount) {}
 
     private record AccountRow(UUID id, String name, LocalDate openedOn) {}
+
+    private record AccountOpening(UUID id, LocalDate openedOn) {}
 
     private record NamedAmount(UUID id, String name, BigDecimal amount) {}
 }

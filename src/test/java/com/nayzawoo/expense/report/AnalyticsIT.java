@@ -141,6 +141,15 @@ class AnalyticsIT {
         assertThat(body.get("overview").get("expense").asString()).isEqualTo("50");
         assertThat(body.get("overview").get("net").asString()).isEqualTo("150");
         assertThat(body.get("overview").get("previousFiveMonthAverage").isNull()).isTrue();
+        assertThat(body.get("overview").get("elapsedDayAverage").asString()).isEqualTo("3");
+        assertThat(body.get("overview").get("expenseDifference").isNull()).isTrue();
+        assertThat(body.get("overview").get("direction").isNull()).isTrue();
+        assertThat(body.get("period").get("coverage").get("complete").asBoolean()).isTrue();
+        assertThat(body.get("comparisonPeriod").get("coverage").get("complete").asBoolean()).isFalse();
+        assertThat(body.get("comparisonPeriod").get("coverage").get("reason").asString())
+                .isEqualTo("ACCOUNT_OPENING_GAP");
+        assertThat(body.get("balanceCoverage").get("from").asString()).isEqualTo("2026-01-01");
+        assertThat(body.get("balanceCoverage").get("complete").asBoolean()).isTrue();
         assertThat(body.get("insight").isNull()).isTrue();
         assertThat(body.get("monthlyTrend").size()).isEqualTo(6);
         JsonNode current = body.get("monthlyTrend").get(5);
@@ -167,6 +176,28 @@ class AnalyticsIT {
                 jsonEntity(null, member.cookie(), null),
                 String.class);
         assertThat(foreign.getStatusCode().value()).isEqualTo(404);
+    }
+
+    @Test
+    void laterOpeningNullsElapsedDayAverageOnAnalytics() {
+        jdbc.update(
+                "UPDATE account SET opened_on = ? WHERE id = ?",
+                java.sql.Date.valueOf("2026-01-05"),
+                accountB);
+        Session member = login("member@example.com", "correct-password");
+        ResponseEntity<String> result = rest.exchange(
+                "/api/v1/households/" + householdId + "/reports/analytics?asOf=2026-01-15",
+                HttpMethod.GET,
+                jsonEntity(null, member.cookie(), null),
+                String.class);
+        assertThat(result.getStatusCode().value()).isEqualTo(200);
+        JsonNode body = json.readTree(result.getBody());
+        assertThat(body.get("period").get("coverage").get("complete").asBoolean()).isFalse();
+        assertThat(body.get("period").get("coverage").get("reason").asString())
+                .isEqualTo("ACCOUNT_OPENING_GAP");
+        assertThat(body.get("overview").get("elapsedDayAverage").isNull()).isTrue();
+        assertThat(body.get("overview").get("expenseDifference").isNull()).isTrue();
+        assertThat(body.get("overview").get("direction").isNull()).isTrue();
     }
 
     private void insertExpense(UUID accountId, String amount, String effectiveDate) {

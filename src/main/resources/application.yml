@@ -9,6 +9,10 @@ server:
         same-site: lax
         max-age: 7d
 
+expense:
+  bootstrap:
+    enabled: false
+
 spring:
   application:
     name: expense-api

@@ -30,6 +30,17 @@ class Household {
 
     protected Household() {}
 
+    static Household create(UUID id, String name) {
+        Household household = new Household();
+        household.id = id;
+        household.name = name;
+        household.currency = "MMK";
+        household.currencyScale = 0;
+        household.timezone = "Asia/Yangon";
+        household.singleton = true;
+        return household;
+    }
+
     UUID getId() {
         return id;
     }

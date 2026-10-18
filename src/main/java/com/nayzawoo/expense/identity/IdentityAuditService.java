@@ -1,9 +1,7 @@
 package com.nayzawoo.expense.identity;
 
-import java.sql.Timestamp;
-import java.time.Clock;
+import com.nayzawoo.expense.shared.AuditEventWriter;
 import java.util.UUID;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -16,12 +14,10 @@ class IdentityAuditService {
 
     static final String RESOURCE_USER = "USER";
 
-    private final JdbcTemplate jdbc;
-    private final Clock clock;
+    private final AuditEventWriter audit;
 
-    IdentityAuditService(JdbcTemplate jdbc, Clock clock) {
-        this.jdbc = jdbc;
-        this.clock = clock;
+    IdentityAuditService(AuditEventWriter audit) {
+        this.audit = audit;
     }
 
     void record(
@@ -31,21 +27,7 @@ class IdentityAuditService {
             String resourceType,
             UUID resourceId,
             String detailsJson) {
-        jdbc.update(
-                """
-                INSERT INTO audit_event (
-                    id, household_id, actor_user_id, event_type, resource_type, resource_id,
-                    recorded_at, request_id, details)
-                VALUES (?, ?, ?, ?, ?, ?, ?, NULL, CAST(? AS jsonb))
-                """,
-                UUID.randomUUID(),
-                householdId,
-                actorUserId,
-                eventType,
-                resourceType,
-                resourceId,
-                Timestamp.from(clock.instant()),
-                detailsJson == null || detailsJson.isBlank() ? "{}" : detailsJson);
+        audit.record(householdId, actorUserId, eventType, resourceType, resourceId, detailsJson);
     }
 
     static String targetUserDetails(UUID targetUserId) {
@@ -56,13 +38,9 @@ class IdentityAuditService {
         return "{\"targetUserId\":\""
                 + targetUserId
                 + "\",\"previousEmail\":\""
-                + escape(previousEmail)
+                + AuditEventWriter.escape(previousEmail)
                 + "\",\"newEmail\":\""
-                + escape(newEmail)
+                + AuditEventWriter.escape(newEmail)
                 + "\"}";
-    }
-
-    private static String escape(String value) {
-        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

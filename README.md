@@ -2,9 +2,9 @@
 
 A Java 21 / Spring Boot 4.1.1 backend foundation using Spring MVC, JPA validation,
 Flyway and PostgreSQL 18.6. One household, session login, password change,
-household user administration, profile self-service, and admin account creation
-with an immutable opening entry are implemented. Other financial entries and the
-browser application are not.
+household user administration, profile self-service, admin account creation with
+an immutable opening entry, and category/beneficiary metadata are implemented.
+Other financial entries and the browser application are not.
 
 Session login uses `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me`,
 and `POST /api/v1/auth/logout`. Login, logout, and `PUT /api/v1/password` require the CSRF
@@ -49,6 +49,12 @@ An admin may create accounts under `/api/v1/households/{householdId}/accounts` w
 an `Idempotency-Key`. Creation is atomic with the immutable opening revision and
 postings. Active household members may list and read account balances derived from
 postings as of the household's current local date.
+
+Active members may list and read categories and beneficiaries under
+`/api/v1/households/{householdId}/categories` and
+`/api/v1/households/{householdId}/beneficiaries`. Admins create, update, and
+archive those references. Bootstrap seeds collective `Household` and `Other`
+beneficiaries. Bulk order ETag routes and expense wiring are not included yet.
 
 Recover an existing active admin without HTTP by supplying a runtime password:
 

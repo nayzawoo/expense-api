@@ -61,16 +61,27 @@ BEGIN
         RAISE EXCEPTION 'expense create revision shape is invalid';
     END IF;
 
-    SELECT count(*), min(signed_amount), min(account_id), min(effective_date), min(currency_code)
-    INTO posting_count, apply_amount, apply_account, apply_date, apply_currency
+    SELECT count(*)
+    INTO posting_count
     FROM account_posting
     WHERE household_id = NEW.household_id
       AND transaction_id = NEW.transaction_id
       AND revision_no = NEW.revision_no
       AND role = 'APPLY';
 
-    IF posting_count <> 1
-        OR apply_amount IS DISTINCT FROM (-revision_amount)
+    IF posting_count <> 1 THEN
+        RAISE EXCEPTION 'expense create posting group is invalid';
+    END IF;
+
+    SELECT signed_amount, account_id, effective_date, currency_code
+    INTO apply_amount, apply_account, apply_date, apply_currency
+    FROM account_posting
+    WHERE household_id = NEW.household_id
+      AND transaction_id = NEW.transaction_id
+      AND revision_no = NEW.revision_no
+      AND role = 'APPLY';
+
+    IF apply_amount IS DISTINCT FROM (-revision_amount)
         OR apply_account IS DISTINCT FROM revision_account
         OR apply_date IS DISTINCT FROM revision_date
         OR apply_currency IS DISTINCT FROM revision_currency THEN

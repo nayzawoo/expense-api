@@ -24,6 +24,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -47,6 +49,9 @@ class ExpenseIT {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @MockitoBean
     private Clock clock;
@@ -311,68 +316,70 @@ class ExpenseIT {
     }
 
     private void insertAccount(UUID id, String name, String openedOn, String openingAmount) {
-        Instant now = Instant.parse("2026-01-15T00:00:00Z");
-        jdbc.update(
-                """
-                INSERT INTO account (
-                    id, household_id, name, owner_label, type, currency_code, opened_on, status,
-                    sort_order, version, balance_version, created_at, updated_at)
-                VALUES (?, ?, ?, 'Ada', 'CASH', 'MMK', ?, 'ACTIVE', 1, 0, 1, ?, ?)
-                """,
-                id,
-                householdId,
-                name,
-                java.sql.Date.valueOf(openedOn),
-                java.sql.Timestamp.from(now),
-                java.sql.Timestamp.from(now));
-        UUID openingTx = UUID.randomUUID();
-        jdbc.update(
-                """
-                INSERT INTO financial_transaction (
-                    id, household_id, kind, created_by_user_id, current_revision_no, version,
-                    opening_account_id, created_at)
-                VALUES (?, ?, 'OPENING', ?, 1, 0, ?, ?)
-                """,
-                openingTx,
-                householdId,
-                adminId,
-                id,
-                java.sql.Timestamp.from(now));
-        jdbc.update(
-                """
-                INSERT INTO transaction_revision (
-                    household_id, transaction_id, revision_no, operation, state, previous_revision_no,
-                    effective_date, amount, currency_code, account_id, source_account_id,
-                    destination_account_id, category_id, beneficiary_id, note, change_reason,
-                    recorded_by_user_id, recorded_at, account_name_snapshot, actor_display_name_snapshot,
-                    category_name_snapshot, beneficiary_name_snapshot)
-                VALUES (?, ?, 1, 'CREATE', 'POSTED', NULL, ?, ?, 'MMK', ?, NULL, NULL, NULL, NULL, NULL, NULL,
-                        ?, ?, ?, 'Admin', NULL, NULL)
-                """,
-                householdId,
-                openingTx,
-                java.sql.Date.valueOf(openedOn),
-                new BigDecimal(openingAmount),
-                id,
-                adminId,
-                java.sql.Timestamp.from(now),
-                name);
-        if (new BigDecimal(openingAmount).compareTo(BigDecimal.ZERO) != 0) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            Instant now = Instant.parse("2026-01-15T00:00:00Z");
             jdbc.update(
                     """
-                    INSERT INTO account_posting (
-                        id, household_id, transaction_id, revision_no, account_id, effective_date,
-                        currency_code, signed_amount, leg_no, role, reverses_posting_id, recorded_at)
-                    VALUES (?, ?, ?, 1, ?, ?, 'MMK', ?, 1, 'APPLY', NULL, ?)
+                    INSERT INTO account (
+                        id, household_id, name, owner_label, type, currency_code, opened_on, status,
+                        sort_order, version, balance_version, created_at, updated_at)
+                    VALUES (?, ?, ?, 'Ada', 'CASH', 'MMK', ?, 'ACTIVE', 1, 0, 1, ?, ?)
                     """,
-                    UUID.randomUUID(),
+                    id,
+                    householdId,
+                    name,
+                    java.sql.Date.valueOf(openedOn),
+                    java.sql.Timestamp.from(now),
+                    java.sql.Timestamp.from(now));
+            UUID openingTx = UUID.randomUUID();
+            jdbc.update(
+                    """
+                    INSERT INTO financial_transaction (
+                        id, household_id, kind, created_by_user_id, current_revision_no, version,
+                        opening_account_id, created_at)
+                    VALUES (?, ?, 'OPENING', ?, 1, 0, ?, ?)
+                    """,
+                    openingTx,
+                    householdId,
+                    adminId,
+                    id,
+                    java.sql.Timestamp.from(now));
+            jdbc.update(
+                    """
+                    INSERT INTO transaction_revision (
+                        household_id, transaction_id, revision_no, operation, state, previous_revision_no,
+                        effective_date, amount, currency_code, account_id, source_account_id,
+                        destination_account_id, category_id, beneficiary_id, note, change_reason,
+                        recorded_by_user_id, recorded_at, account_name_snapshot, actor_display_name_snapshot,
+                        category_name_snapshot, beneficiary_name_snapshot)
+                    VALUES (?, ?, 1, 'CREATE', 'POSTED', NULL, ?, ?, 'MMK', ?, NULL, NULL, NULL, NULL, NULL, NULL,
+                            ?, ?, ?, 'Admin', NULL, NULL)
+                    """,
                     householdId,
                     openingTx,
-                    id,
                     java.sql.Date.valueOf(openedOn),
                     new BigDecimal(openingAmount),
-                    java.sql.Timestamp.from(now));
-        }
+                    id,
+                    adminId,
+                    java.sql.Timestamp.from(now),
+                    name);
+            if (new BigDecimal(openingAmount).compareTo(BigDecimal.ZERO) != 0) {
+                jdbc.update(
+                        """
+                        INSERT INTO account_posting (
+                            id, household_id, transaction_id, revision_no, account_id, effective_date,
+                            currency_code, signed_amount, leg_no, role, reverses_posting_id, recorded_at)
+                        VALUES (?, ?, ?, 1, ?, ?, 'MMK', ?, 1, 'APPLY', NULL, ?)
+                        """,
+                        UUID.randomUUID(),
+                        householdId,
+                        openingTx,
+                        id,
+                        java.sql.Date.valueOf(openedOn),
+                        new BigDecimal(openingAmount),
+                        java.sql.Timestamp.from(now));
+            }
+        });
     }
 
     private Session login(String email, String password) {

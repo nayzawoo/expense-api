@@ -9,6 +9,7 @@ import com.nayzawoo.expense.report.ReportService.BeneficiarySpendingResponse;
 import com.nayzawoo.expense.report.ReportService.CategoryBreakdownResponse;
 import com.nayzawoo.expense.report.ReportService.CategoryChangesResponse;
 import com.nayzawoo.expense.report.ReportService.DashboardView;
+import com.nayzawoo.expense.report.ReportService.InsightResponse;
 import com.nayzawoo.expense.report.ReportService.MonthTrendResponse;
 import com.nayzawoo.expense.report.ReportService.OverviewView;
 import com.nayzawoo.expense.report.ReportService.PacePointResponse;
@@ -60,7 +61,7 @@ class ReportController {
             List<MonthTrendResponse> monthlyTrend,
             List<CategoryBreakdownResponse> categoryBreakdown,
             CategoryChangesResponse categoryChanges,
-            Object insight) {
+            InsightResponse insight) {
 
         static AnalyticsResponse from(AnalyticsView view) {
             return new AnalyticsResponse(

@@ -127,6 +127,7 @@ class ReportService {
                 expenseByCategory(locked.householdId(), period.from(), period.to());
         Map<UUID, NamedAmount> previousByCategory =
                 expenseByCategory(locked.householdId(), comparison.from(), comparison.to());
+        CategoryChangesResponse categoryChanges = categoryChanges(currentByCategory, previousByCategory);
         return new AnalyticsView(
                 locked.currency(),
                 locked.timezone(),
@@ -145,8 +146,42 @@ class ReportService {
                         elapsedDayAverage),
                 monthlyTrend(locked.householdId(), asOf, openedOns),
                 categoryBreakdown(currentByCategory, expense),
-                categoryChanges(currentByCategory, previousByCategory),
-                null);
+                categoryChanges,
+                insight(expenseDifference, expenseDifferencePercent, direction, categoryChanges));
+    }
+
+    private static InsightResponse insight(
+            BigDecimal expenseDifference,
+            BigDecimal expenseDifferencePercent,
+            String direction,
+            CategoryChangesResponse categoryChanges) {
+        if (expenseDifference == null || direction == null) {
+            return null;
+        }
+        if (nearlyUnchanged(expenseDifference, expenseDifferencePercent) || "FLAT".equals(direction)) {
+            return new InsightResponse("FLAT", null, List.of());
+        }
+        List<RefResponse> contributors = ("UP".equals(direction)
+                        ? categoryChanges.increased()
+                        : categoryChanges.decreased())
+                .stream()
+                .limit(2)
+                .map(CategoryChangeResponse::category)
+                .toList();
+        return new InsightResponse(
+                direction,
+                new InsightMetricResponse(
+                        Money.format(expenseDifference.abs()),
+                        expenseDifferencePercent == null ? null : expenseDifferencePercent.toPlainString()),
+                contributors);
+    }
+
+    private static boolean nearlyUnchanged(BigDecimal expenseDifference, BigDecimal expenseDifferencePercent) {
+        if (expenseDifference.abs().compareTo(BigDecimal.ONE) < 0) {
+            return true;
+        }
+        return expenseDifferencePercent != null
+                && expenseDifferencePercent.abs().compareTo(new BigDecimal("1.0")) < 0;
     }
 
     private static OverviewView overview(
@@ -641,7 +676,11 @@ class ReportService {
             List<MonthTrendResponse> monthlyTrend,
             List<CategoryBreakdownResponse> categoryBreakdown,
             CategoryChangesResponse categoryChanges,
-            Object insight) {}
+            InsightResponse insight) {}
+
+    record InsightMetricResponse(String expenseDifferenceAbs, String expenseDifferencePercent) {}
+
+    record InsightResponse(String kind, InsightMetricResponse metric, List<RefResponse> contributors) {}
 
     record MonthTrendResponse(String month, String expense, boolean isPartial, String coverage) {}
 

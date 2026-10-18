@@ -10,33 +10,110 @@ import org.springframework.web.server.ResponseStatusException;
 public class FinancialAccess {
 
     private final JdbcTemplate jdbc;
-    private final AppUserRepository users;
+    private final IdentityLocks locks;
 
-    FinancialAccess(JdbcTemplate jdbc, AppUserRepository users) {
+    FinancialAccess(JdbcTemplate jdbc, IdentityLocks locks) {
         this.jdbc = jdbc;
-        this.users = users;
+        this.locks = locks;
     }
 
     public LockedHouseholdActor lockForFinancialWrite(ExpenseUser actor, UUID householdId) {
         if (actor == null || householdId == null || !householdId.equals(actor.getHouseholdId())) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
-        Integer householdLocked = jdbc.query(
-                "SELECT 1 FROM household WHERE id = ? FOR SHARE",
-                rs -> rs.next() ? 1 : null,
-                householdId);
-        if (householdLocked == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        }
-        AppUser user = users.findById(actor.getId()).orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
-        jdbc.query("SELECT 1 FROM app_user WHERE id = ? FOR UPDATE", rs -> rs.next() ? 1 : null, actor.getId());
-        user = users.findById(actor.getId()).orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
-        if (!"ACTIVE".equals(user.getStatus())
-                || user.isMustChangePassword()
-                || user.getSecurityVersion() != actor.getSecurityVersion()
-                || !householdId.equals(user.getHouseholdId())) {
+        locks.lockHouseholdShare(householdId);
+        LockedUserRow user = lockActorRow(actor.getId());
+        if (!"ACTIVE".equals(user.status())
+                || user.mustChangePassword()
+                || user.securityVersion() != actor.getSecurityVersion()
+                || !householdId.equals(user.householdId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         }
+        HouseholdRow household = readHousehold(householdId);
+        return new LockedHouseholdActor(
+                householdId, user.id(), user.role(), user.securityVersion(), household.currency(), household.timezone());
+    }
+
+    public LockedHouseholdActor requireHouseholdMember(ExpenseUser actor, UUID householdId) {
+        if (actor == null || householdId == null || !householdId.equals(actor.getHouseholdId())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+        Integer exists = jdbc.query(
+                "SELECT 1 FROM household WHERE id = ?", rs -> rs.next() ? 1 : null, householdId);
+        if (exists == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+        LockedUserRow user = readActorRow(actor.getId());
+        if (!"ACTIVE".equals(user.status()) || user.mustChangePassword() || !householdId.equals(user.householdId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+        }
+        HouseholdRow household = readHousehold(householdId);
+        return new LockedHouseholdActor(
+                householdId, user.id(), user.role(), user.securityVersion(), household.currency(), household.timezone());
+    }
+
+    public record LockedHouseholdActor(
+            UUID householdId, UUID userId, String role, long securityVersion, String currency, String timezone) {
+
+        public boolean admin() {
+            return "ADMIN".equals(role);
+        }
+    }
+
+    private LockedUserRow lockActorRow(UUID userId) {
+        LockedUserRow user = jdbc.query(
+                """
+                SELECT id, household_id, role, status, must_change_password, security_version
+                FROM app_user
+                WHERE id = ?
+                FOR UPDATE
+                """,
+                rs -> {
+                    if (!rs.next()) {
+                        return null;
+                    }
+                    return new LockedUserRow(
+                            rs.getObject("id", UUID.class),
+                            rs.getObject("household_id", UUID.class),
+                            rs.getString("role"),
+                            rs.getString("status"),
+                            rs.getBoolean("must_change_password"),
+                            rs.getLong("security_version"));
+                },
+                userId);
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        }
+        return user;
+    }
+
+    private LockedUserRow readActorRow(UUID userId) {
+        LockedUserRow user = jdbc.query(
+                """
+                SELECT id, household_id, role, status, must_change_password, security_version
+                FROM app_user
+                WHERE id = ?
+                """,
+                rs -> {
+                    if (!rs.next()) {
+                        return null;
+                    }
+                    return new LockedUserRow(
+                            rs.getObject("id", UUID.class),
+                            rs.getObject("household_id", UUID.class),
+                            rs.getString("role"),
+                            rs.getString("status"),
+                            rs.getBoolean("must_change_password"),
+                            rs.getLong("security_version"));
+                },
+                userId);
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        }
+        return user;
+    }
+
+    private HouseholdRow readHousehold(UUID householdId) {
         HouseholdRow household = jdbc.query(
                 "SELECT currency, timezone FROM household WHERE id = ?",
                 rs -> {
@@ -49,43 +126,11 @@ public class FinancialAccess {
         if (household == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
-        return new LockedHouseholdActor(
-                householdId, user.getId(), user.getRole(), user.getSecurityVersion(), household.currency(), household.timezone());
+        return household;
     }
 
-    public LockedHouseholdActor requireHouseholdMember(ExpenseUser actor, UUID householdId) {
-        if (actor == null || householdId == null || !householdId.equals(actor.getHouseholdId())) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        }
-        Integer exists = jdbc.query(
-                "SELECT 1 FROM household WHERE id = ?", rs -> rs.next() ? 1 : null, householdId);
-        if (exists == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        }
-        AppUser user = users.findById(actor.getId()).orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
-        if (!"ACTIVE".equals(user.getStatus()) || user.isMustChangePassword()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        }
-        HouseholdRow household = jdbc.query(
-                "SELECT currency, timezone FROM household WHERE id = ?",
-                rs -> {
-                    if (!rs.next()) {
-                        return null;
-                    }
-                    return new HouseholdRow(rs.getString("currency"), rs.getString("timezone"));
-                },
-                householdId);
-        return new LockedHouseholdActor(
-                householdId, user.getId(), user.getRole(), user.getSecurityVersion(), household.currency(), household.timezone());
-    }
-
-    public record LockedHouseholdActor(
-            UUID householdId, UUID userId, String role, long securityVersion, String currency, String timezone) {
-
-        public boolean admin() {
-            return "ADMIN".equals(role);
-        }
-    }
+    private record LockedUserRow(
+            UUID id, UUID householdId, String role, String status, boolean mustChangePassword, long securityVersion) {}
 
     private record HouseholdRow(String currency, String timezone) {}
 }

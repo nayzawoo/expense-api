@@ -178,7 +178,7 @@ class RecoveryAuthRefreshIT {
         assertThatThrownBy(() -> householdUsers.updateUser(staleBea, householdId, adminId, null, "MEMBER", null, null))
                 .isInstanceOf(ResponseStatusException.class)
                 .extracting(ex -> ((ResponseStatusException) ex).getStatusCode().value())
-                .isEqualTo(409);
+                .isEqualTo(403);
     }
 
     private Session login(String email, String password) {

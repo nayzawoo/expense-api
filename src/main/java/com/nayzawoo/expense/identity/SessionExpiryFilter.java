@@ -14,13 +14,14 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-class AbsoluteSessionExpiryFilter extends OncePerRequestFilter {
+class SessionExpiryFilter extends OncePerRequestFilter {
 
     static final Duration ABSOLUTE_LIFETIME = Duration.ofDays(30);
+    static final Duration IDLE_LIFETIME = Duration.ofDays(7);
 
     private final Clock clock;
 
-    AbsoluteSessionExpiryFilter(Clock clock) {
+    SessionExpiryFilter(Clock clock) {
         this.clock = clock;
     }
 
@@ -35,9 +36,15 @@ class AbsoluteSessionExpiryFilter extends OncePerRequestFilter {
             return;
         }
         HttpSession session = request.getSession(false);
-        Object authenticatedAt = session == null ? null : session.getAttribute(SessionAttributes.AUTHENTICATED_AT);
-        if (!(authenticatedAt instanceof Instant started)
-                || !clock.instant().isBefore(started.plus(ABSOLUTE_LIFETIME))) {
+        Instant authenticatedAt = instantAttribute(session, SessionAttributes.AUTHENTICATED_AT);
+        Instant lastQualifying = instantAttribute(session, SessionAttributes.LAST_QUALIFYING_ACTIVITY_AT);
+        if (lastQualifying == null) {
+            lastQualifying = authenticatedAt;
+        }
+        Instant now = clock.instant();
+        if (authenticatedAt == null
+                || !now.isBefore(authenticatedAt.plus(ABSOLUTE_LIFETIME))
+                || !now.isBefore(lastQualifying.plus(IDLE_LIFETIME))) {
             if (session != null) {
                 session.invalidate();
             }
@@ -46,5 +53,13 @@ class AbsoluteSessionExpiryFilter extends OncePerRequestFilter {
             return;
         }
         filterChain.doFilter(request, response);
+    }
+
+    private static Instant instantAttribute(HttpSession session, String name) {
+        if (session == null) {
+            return null;
+        }
+        Object value = session.getAttribute(name);
+        return value instanceof Instant instant ? instant : null;
     }
 }

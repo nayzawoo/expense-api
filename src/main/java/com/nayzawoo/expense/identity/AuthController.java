@@ -2,7 +2,9 @@ package com.nayzawoo.expense.identity;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import java.time.Clock;
+import java.time.Instant;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -62,16 +65,49 @@ class AuthController {
             SecurityContextHolder.setContext(context);
             sessionAuthenticationStrategy.onAuthentication(authentication, httpRequest, httpResponse);
             securityContextRepository.saveContext(context, httpRequest, httpResponse);
-            httpRequest.getSession().setAttribute(SessionAttributes.AUTHENTICATED_AT, clock.instant());
+            Instant now = clock.instant();
+            HttpSession session = httpRequest.getSession();
+            session.setAttribute(SessionAttributes.AUTHENTICATED_AT, now);
+            session.setAttribute(SessionAttributes.LAST_QUALIFYING_ACTIVITY_AT, now);
             return CurrentUserResponse.from((ExpenseUser) authentication.getPrincipal());
         } catch (AuthenticationException exception) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
         }
     }
 
+    @PostMapping("/activity")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void activity(HttpServletRequest httpRequest) {
+        HttpSession session = httpRequest.getSession(false);
+        if (session == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        }
+        Instant authenticatedAt = instantAttribute(session, SessionAttributes.AUTHENTICATED_AT);
+        Instant lastQualifying = instantAttribute(session, SessionAttributes.LAST_QUALIFYING_ACTIVITY_AT);
+        if (lastQualifying == null) {
+            lastQualifying = authenticatedAt;
+        }
+        Instant now = clock.instant();
+        if (authenticatedAt == null
+                || !now.isBefore(authenticatedAt.plus(SessionExpiryFilter.ABSOLUTE_LIFETIME))
+                || !now.isBefore(lastQualifying.plus(SessionExpiryFilter.IDLE_LIFETIME))) {
+            session.invalidate();
+            SecurityContextHolder.clearContext();
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        }
+        if (lastQualifying == null || now.isAfter(lastQualifying)) {
+            session.setAttribute(SessionAttributes.LAST_QUALIFYING_ACTIVITY_AT, now);
+        }
+    }
+
     @GetMapping("/me")
     CurrentUserResponse me(@AuthenticationPrincipal ExpenseUser user) {
         return CurrentUserResponse.from(user);
+    }
+
+    private static Instant instantAttribute(HttpSession session, String name) {
+        Object value = session.getAttribute(name);
+        return value instanceof Instant instant ? instant : null;
     }
 
     record LoginRequest(String email, String password) {}

@@ -3,8 +3,12 @@ package com.nayzawoo.expense.report;
 import com.nayzawoo.expense.identity.ExpenseUser;
 import com.nayzawoo.expense.report.ReportService.AccountBalanceResponse;
 import com.nayzawoo.expense.report.ReportService.ActivityResponse;
+import com.nayzawoo.expense.report.ReportService.BeneficiarySpendingResponse;
+import com.nayzawoo.expense.report.ReportService.CategoryBreakdownResponse;
+import com.nayzawoo.expense.report.ReportService.CategoryChangesResponse;
 import com.nayzawoo.expense.report.ReportService.DashboardView;
 import com.nayzawoo.expense.report.ReportService.OverviewView;
+import com.nayzawoo.expense.report.ReportService.PacePointResponse;
 import com.nayzawoo.expense.report.ReportService.PeriodResponse;
 import java.time.LocalDate;
 import java.util.List;
@@ -43,10 +47,10 @@ class ReportController {
             String totalBalance,
             List<AccountBalanceResponse> accounts,
             OverviewView overview,
-            List<Object> spendingPace,
-            List<Object> categoryBreakdown,
-            List<Object> categoryChanges,
-            List<Object> beneficiarySpending,
+            List<PacePointResponse> spendingPace,
+            List<CategoryBreakdownResponse> categoryBreakdown,
+            CategoryChangesResponse categoryChanges,
+            List<BeneficiarySpendingResponse> beneficiarySpending,
             List<ActivityResponse> recentActivity) {
 
         static DashboardResponse from(DashboardView view) {

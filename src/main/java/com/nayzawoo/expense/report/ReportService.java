@@ -5,6 +5,7 @@ import com.nayzawoo.expense.identity.FinancialAccess;
 import com.nayzawoo.expense.identity.FinancialAccess.LockedHouseholdActor;
 import com.nayzawoo.expense.shared.Money;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.Date;
 import java.time.Clock;
 import java.time.Instant;
@@ -51,6 +52,7 @@ class ReportService {
         BigDecimal net = income.subtract(expense);
         BigDecimal expenseDifference = expense.subtract(previousExpense);
         String direction = directionOf(expenseDifference);
+        BigDecimal expenseDifferencePercent = percentOrNull(expenseDifference, previousExpense);
         List<AccountBalanceView> allAccounts = accountBalances(locked.householdId(), asOf);
         BigDecimal totalBalance = allAccounts.stream()
                 .map(AccountBalanceView::balanceValue)
@@ -62,6 +64,15 @@ class ReportService {
                 .limit(6)
                 .toList();
         List<ActivityView> recent = recentActivity(locked.householdId(), asOf);
+        List<PacePointResponse> pace = spendingPace(locked.householdId(), asOf, period, comparison);
+        Map<UUID, NamedAmount> currentByCategory =
+                expenseByCategory(locked.householdId(), period.from(), period.to());
+        Map<UUID, NamedAmount> previousByCategory =
+                expenseByCategory(locked.householdId(), comparison.from(), comparison.to());
+        List<CategoryBreakdownResponse> categoryBreakdown = categoryBreakdown(currentByCategory, expense);
+        CategoryChangesResponse categoryChanges = categoryChanges(currentByCategory, previousByCategory);
+        List<BeneficiarySpendingResponse> beneficiarySpending =
+                beneficiarySpending(locked.householdId(), period.from(), period.to());
         return new DashboardView(
                 locked.currency(),
                 locked.timezone(),
@@ -76,15 +87,197 @@ class ReportService {
                         Money.format(net),
                         Money.format(previousExpense),
                         Money.format(expenseDifference),
-                        null,
+                        expenseDifferencePercent == null ? null : expenseDifferencePercent.toPlainString(),
                         direction,
                         null,
                         null),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
+                pace,
+                categoryBreakdown,
+                categoryChanges,
+                beneficiarySpending,
                 recent.stream().map(ActivityView::toResponse).toList());
+    }
+
+    private List<PacePointResponse> spendingPace(
+            UUID householdId, LocalDate asOf, PeriodView period, PeriodView comparison) {
+        Map<Integer, BigDecimal> currentDays = expenseByDayOfMonth(householdId, period.from(), period.to());
+        Map<Integer, BigDecimal> previousDays =
+                expenseByDayOfMonth(householdId, comparison.from(), comparison.to());
+        int elapsedDays = asOf.getDayOfMonth();
+        int previousLength = YearMonth.from(comparison.from()).lengthOfMonth();
+        List<PacePointResponse> points = new ArrayList<>(elapsedDays);
+        BigDecimal currentCumulative = BigDecimal.ZERO;
+        BigDecimal previousCumulative = BigDecimal.ZERO;
+        BigDecimal previousFinal = BigDecimal.ZERO;
+        for (int day = 1; day <= previousLength; day++) {
+            previousFinal = previousFinal.add(previousDays.getOrDefault(day, BigDecimal.ZERO));
+        }
+        for (int day = 1; day <= elapsedDays; day++) {
+            BigDecimal dayExpense = currentDays.getOrDefault(day, BigDecimal.ZERO);
+            currentCumulative = currentCumulative.add(dayExpense);
+            if (day <= previousLength) {
+                previousCumulative = previousCumulative.add(previousDays.getOrDefault(day, BigDecimal.ZERO));
+            } else {
+                previousCumulative = previousFinal;
+            }
+            points.add(new PacePointResponse(
+                    day,
+                    Money.format(currentCumulative),
+                    Money.format(previousCumulative),
+                    Money.format(dayExpense)));
+        }
+        return points;
+    }
+
+    private List<CategoryBreakdownResponse> categoryBreakdown(
+            Map<UUID, NamedAmount> currentByCategory, BigDecimal totalExpense) {
+        return currentByCategory.values().stream()
+                .sorted(Comparator.comparing(NamedAmount::amount)
+                        .reversed()
+                        .thenComparing(NamedAmount::id))
+                .map(row -> new CategoryBreakdownResponse(
+                        new RefResponse(row.id().toString(), row.name()),
+                        Money.format(row.amount()),
+                        sharePercent(row.amount(), totalExpense).toPlainString()))
+                .toList();
+    }
+
+    private CategoryChangesResponse categoryChanges(
+            Map<UUID, NamedAmount> current, Map<UUID, NamedAmount> previous) {
+        Map<UUID, String> names = new HashMap<>();
+        for (NamedAmount row : current.values()) {
+            names.put(row.id(), row.name());
+        }
+        for (NamedAmount row : previous.values()) {
+            names.putIfAbsent(row.id(), row.name());
+        }
+        List<CategoryChangeResponse> all = new ArrayList<>();
+        for (UUID id : names.keySet()) {
+            BigDecimal currentAmount = current.containsKey(id) ? current.get(id).amount() : BigDecimal.ZERO;
+            BigDecimal previousAmount = previous.containsKey(id) ? previous.get(id).amount() : BigDecimal.ZERO;
+            BigDecimal difference = currentAmount.subtract(previousAmount);
+            boolean isNew = previousAmount.compareTo(BigDecimal.ZERO) == 0
+                    && currentAmount.compareTo(BigDecimal.ZERO) > 0;
+            all.add(new CategoryChangeResponse(
+                    new RefResponse(id.toString(), names.get(id)),
+                    Money.format(currentAmount),
+                    Money.format(previousAmount),
+                    Money.format(difference),
+                    percentOrNull(difference, previousAmount) == null
+                            ? null
+                            : percentOrNull(difference, previousAmount).toPlainString(),
+                    isNew));
+        }
+        List<CategoryChangeResponse> increased = all.stream()
+                .filter(change -> new BigDecimal(change.difference()).compareTo(BigDecimal.ZERO) > 0)
+                .sorted(Comparator.comparing((CategoryChangeResponse change) -> new BigDecimal(change.difference()))
+                        .reversed()
+                        .thenComparing(change -> change.category().id()))
+                .limit(3)
+                .toList();
+        List<CategoryChangeResponse> decreased = all.stream()
+                .filter(change -> new BigDecimal(change.difference()).compareTo(BigDecimal.ZERO) < 0)
+                .sorted(Comparator.comparing((CategoryChangeResponse change) -> new BigDecimal(change.difference()))
+                        .thenComparing(change -> change.category().id()))
+                .limit(3)
+                .toList();
+        return new CategoryChangesResponse(increased, decreased);
+    }
+
+    private List<BeneficiarySpendingResponse> beneficiarySpending(UUID householdId, LocalDate from, LocalDate to) {
+        return expenseByBeneficiary(householdId, from, to).values().stream()
+                .sorted(Comparator.comparing(NamedAmount::amount)
+                        .reversed()
+                        .thenComparing(NamedAmount::id))
+                .map(row -> new BeneficiarySpendingResponse(
+                        new RefResponse(row.id().toString(), row.name()), Money.format(row.amount())))
+                .toList();
+    }
+
+    private Map<Integer, BigDecimal> expenseByDayOfMonth(UUID householdId, LocalDate from, LocalDate to) {
+        Map<Integer, BigDecimal> days = new HashMap<>();
+        jdbc.query(
+                """
+                SELECT EXTRACT(DAY FROM r.effective_date)::int AS day_no, COALESCE(SUM(r.amount), 0)
+                FROM financial_transaction t
+                JOIN transaction_revision r
+                  ON r.household_id = t.household_id
+                 AND r.transaction_id = t.id
+                 AND r.revision_no = t.current_revision_no
+                WHERE t.household_id = ?
+                  AND t.kind = 'EXPENSE'
+                  AND r.state = 'POSTED'
+                  AND r.effective_date >= ?
+                  AND r.effective_date <= ?
+                GROUP BY EXTRACT(DAY FROM r.effective_date)
+                """,
+                rs -> {
+                    days.put(rs.getInt(1), rs.getBigDecimal(2));
+                },
+                householdId,
+                Date.valueOf(from),
+                Date.valueOf(to));
+        return days;
+    }
+
+    private Map<UUID, NamedAmount> expenseByCategory(UUID householdId, LocalDate from, LocalDate to) {
+        Map<UUID, NamedAmount> rows = new HashMap<>();
+        jdbc.query(
+                """
+                SELECT c.id, c.name, COALESCE(SUM(r.amount), 0)
+                FROM financial_transaction t
+                JOIN transaction_revision r
+                  ON r.household_id = t.household_id
+                 AND r.transaction_id = t.id
+                 AND r.revision_no = t.current_revision_no
+                JOIN category c
+                  ON c.household_id = t.household_id
+                 AND c.id = r.category_id
+                WHERE t.household_id = ?
+                  AND t.kind = 'EXPENSE'
+                  AND r.state = 'POSTED'
+                  AND r.effective_date >= ?
+                  AND r.effective_date <= ?
+                GROUP BY c.id, c.name
+                """,
+                rs -> {
+                    UUID id = rs.getObject(1, UUID.class);
+                    rows.put(id, new NamedAmount(id, rs.getString(2), rs.getBigDecimal(3)));
+                },
+                householdId,
+                Date.valueOf(from),
+                Date.valueOf(to));
+        return rows;
+    }
+
+    private Map<UUID, NamedAmount> expenseByBeneficiary(UUID householdId, LocalDate from, LocalDate to) {
+        Map<UUID, NamedAmount> rows = new HashMap<>();
+        jdbc.query(
+                """
+                SELECT b.id, b.name, COALESCE(SUM(r.amount), 0)
+                FROM financial_transaction t
+                JOIN transaction_revision r
+                  ON r.household_id = t.household_id
+                 AND r.transaction_id = t.id
+                 AND r.revision_no = t.current_revision_no
+                JOIN beneficiary b
+                  ON b.household_id = t.household_id
+                 AND b.id = r.beneficiary_id
+                WHERE t.household_id = ?
+                  AND t.kind = 'EXPENSE'
+                  AND r.state = 'POSTED'
+                  AND r.effective_date >= ?
+                  AND r.effective_date <= ?
+                GROUP BY b.id, b.name
+                """,
+                rs -> {
+                    UUID id = rs.getObject(1, UUID.class);
+                    rows.put(id, new NamedAmount(id, rs.getString(2), rs.getBigDecimal(3)));
+                },
+                householdId,
+                Date.valueOf(from),
+                Date.valueOf(to));
+        return rows;
     }
 
     private List<AccountBalanceView> accountBalances(UUID householdId, LocalDate asOf) {
@@ -216,16 +409,13 @@ class ReportService {
     }
 
     private static PeriodView currentPeriod(LocalDate asOf) {
-        LocalDate from = asOf.withDayOfMonth(1);
-        return new PeriodView(from, asOf);
+        return new PeriodView(asOf.withDayOfMonth(1), asOf);
     }
 
     private static PeriodView comparisonPeriod(LocalDate asOf) {
         YearMonth previous = YearMonth.from(asOf).minusMonths(1);
-        LocalDate from = previous.atDay(1);
         int day = Math.min(asOf.getDayOfMonth(), previous.lengthOfMonth());
-        LocalDate to = previous.atDay(day);
-        return new PeriodView(from, to);
+        return new PeriodView(previous.atDay(1), previous.atDay(day));
     }
 
     private static String directionOf(BigDecimal difference) {
@@ -237,6 +427,20 @@ class ReportService {
             return "DOWN";
         }
         return "FLAT";
+    }
+
+    private static BigDecimal percentOrNull(BigDecimal numerator, BigDecimal denominator) {
+        if (denominator.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        return numerator.multiply(new BigDecimal("100")).divide(denominator, 1, RoundingMode.HALF_EVEN);
+    }
+
+    private static BigDecimal sharePercent(BigDecimal amount, BigDecimal totalExpense) {
+        if (totalExpense.compareTo(BigDecimal.ZERO) == 0) {
+            return BigDecimal.ZERO.setScale(1);
+        }
+        return amount.multiply(new BigDecimal("100")).divide(totalExpense, 1, RoundingMode.HALF_EVEN);
     }
 
     private LocalDate householdToday(String timezone) {
@@ -252,10 +456,10 @@ class ReportService {
             String totalBalance,
             List<AccountBalanceResponse> accounts,
             OverviewView overview,
-            List<Object> spendingPace,
-            List<Object> categoryBreakdown,
-            List<Object> categoryChanges,
-            List<Object> beneficiarySpending,
+            List<PacePointResponse> spendingPace,
+            List<CategoryBreakdownResponse> categoryBreakdown,
+            CategoryChangesResponse categoryChanges,
+            List<BeneficiarySpendingResponse> beneficiarySpending,
             List<ActivityResponse> recentActivity) {}
 
     record PeriodView(LocalDate from, LocalDate to) {
@@ -316,10 +520,25 @@ class ReportService {
 
     record PeriodResponse(String from, String to) {}
 
-    record AccountBalanceResponse(
-            String id, String name, String balance, boolean negativeBalanceWarning) {}
+    record AccountBalanceResponse(String id, String name, String balance, boolean negativeBalanceWarning) {}
 
     record RefResponse(String id, String name) {}
+
+    record PacePointResponse(int day, String currentCumulative, String previousCumulative, String expense) {}
+
+    record CategoryBreakdownResponse(RefResponse category, String amount, String sharePercent) {}
+
+    record CategoryChangeResponse(
+            RefResponse category,
+            String currentAmount,
+            String previousAmount,
+            String difference,
+            String differencePercent,
+            boolean isNew) {}
+
+    record CategoryChangesResponse(List<CategoryChangeResponse> increased, List<CategoryChangeResponse> decreased) {}
+
+    record BeneficiarySpendingResponse(RefResponse beneficiary, String amount) {}
 
     record ActivityResponse(
             String id,
@@ -334,4 +553,6 @@ class ReportService {
             RefResponse destinationAccount) {}
 
     private record AccountRow(UUID id, String name, LocalDate openedOn) {}
+
+    private record NamedAmount(UUID id, String name, BigDecimal amount) {}
 }

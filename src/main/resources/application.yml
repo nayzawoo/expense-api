@@ -1,13 +1,13 @@
 server:
   servlet:
     session:
-      timeout: 7d
+      timeout: 30d
       tracking-modes: cookie
       cookie:
         name: expense-session
         http-only: true
         same-site: lax
-        max-age: 7d
+        max-age: 30d
 
 expense:
   bootstrap:
@@ -19,7 +19,7 @@ spring:
   application:
     name: expense-api
   session:
-    timeout: 7d
+    timeout: 30d
     jdbc:
       initialize-schema: never
   datasource:

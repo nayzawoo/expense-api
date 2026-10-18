@@ -10,8 +10,12 @@ Session login uses `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `GET /api
 and `POST /api/v1/auth/logout`. Login, logout, and `PUT /api/v1/password` require the CSRF
 header from the bootstrap response. Successful login rotates the session id and replaces the
 anonymous CSRF token; callers must fetch a fresh CSRF token before the next write. The session
-cookie is `expense-session`, HttpOnly, and SameSite Lax. Idle timeout is 7 days, and a login
-ends 30 days after it starts. A user who must change their password can call only the CSRF,
+cookie is `expense-session`, HttpOnly, and SameSite Lax. A login ends 30 days after it starts.
+Logical idle expiry is 7 days from the last qualifying activity and is separate from JDBC
+last-access; `POST /api/v1/auth/activity` renews that idle deadline when CSRF-authenticated and
+not under the temporary-password restriction. Passive `GET /auth/me` and CSRF bootstrap do not
+renew it. Session storage timeout is 30 days so framework last-access cannot discard a still-valid
+absolute window early. A user who must change their password can call only the CSRF,
 current-user, password-change, and logout routes. A successful password change revokes every
 session for that user. Temporary-password reset, password rotation, operator recovery, and
 login-email changes write identity audit events without storing credentials.

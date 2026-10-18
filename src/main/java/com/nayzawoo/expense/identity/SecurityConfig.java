@@ -97,9 +97,9 @@ class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .addFilterAfter(
-                        new AbsoluteSessionExpiryFilter(clock),
+                        new SessionExpiryFilter(clock),
                         org.springframework.security.web.context.SecurityContextHolderFilter.class)
-                .addFilterAfter(authRefreshFilter, AbsoluteSessionExpiryFilter.class)
+                .addFilterAfter(authRefreshFilter, SessionExpiryFilter.class)
                 .addFilterAfter(new PasswordChangeRequiredFilter(), AuthRefreshFilter.class);
         return http.build();
     }

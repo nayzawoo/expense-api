@@ -45,13 +45,18 @@ class AppUser {
 
     static AppUser createBootstrapAdmin(
             UUID id, UUID householdId, String email, String displayName, String passwordHash) {
+        return provision(id, householdId, email, displayName, passwordHash, "ADMIN");
+    }
+
+    static AppUser provision(
+            UUID id, UUID householdId, String email, String displayName, String passwordHash, String role) {
         AppUser user = new AppUser();
         user.id = id;
         user.householdId = householdId;
         user.email = email;
         user.displayName = displayName;
         user.passwordHash = passwordHash;
-        user.role = "ADMIN";
+        user.role = role;
         user.status = "ACTIVE";
         user.mustChangePassword = true;
         user.passwordChangedAt = null;
@@ -66,6 +71,33 @@ class AppUser {
             this.passwordChangedAt = now;
         }
         this.securityVersion += 1;
+    }
+
+    void updateDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    void updateRole(String role) {
+        this.role = role;
+    }
+
+    void updateStatus(String status) {
+        this.status = status;
+    }
+
+    void changeEmail(String email) {
+        this.email = email;
+        this.securityVersion += 1;
+    }
+
+    void assignTemporaryPassword(String passwordHash) {
+        this.passwordHash = passwordHash;
+        this.mustChangePassword = true;
+        this.securityVersion += 1;
+    }
+
+    Instant getPasswordChangedAt() {
+        return passwordChangedAt;
     }
 
     UUID getId() {

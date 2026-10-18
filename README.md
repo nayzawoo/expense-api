@@ -1,8 +1,9 @@
 # Expense API
 
 A Java 21 / Spring Boot 4.1.1 backend foundation using Spring MVC, JPA validation,
-Flyway and PostgreSQL 18.6. One household, session login, and password change are
-implemented. Financial entries and the browser application are not.
+Flyway and PostgreSQL 18.6. One household, session login, password change, and
+household user administration are implemented. Financial entries and the browser
+application are not.
 
 Session login uses `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me`,
 and `POST /api/v1/auth/logout`. Login, logout, and `PUT /api/v1/password` require the CSRF
@@ -23,6 +24,10 @@ exists, and a later ordinary start does not rotate the password:
 --expense.bootstrap.admin-display-name=Admin \
 --expense.bootstrap.admin-password=$BOOTSTRAP_ADMIN_PASSWORD"
 ```
+
+An admin may list, create, and update household users under
+`/api/v1/households/{householdId}/users`, including temporary-password reset for
+another user. The last active admin cannot be disabled or demoted.
 
 ## Local containers
 

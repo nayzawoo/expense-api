@@ -3,8 +3,9 @@
 A Java 21 / Spring Boot 4.1.1 backend foundation using Spring MVC, JPA validation,
 Flyway and PostgreSQL 18.6. One household, session login, password change,
 household user administration, profile self-service, admin account creation with
-an immutable opening entry, and category/beneficiary metadata are implemented.
-Other financial entries and the browser application are not.
+an immutable opening entry, category/beneficiary metadata, and expense create with
+list/detail are implemented. Income, transfer, replace/void, and the browser
+application are not.
 
 Session login uses `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me`,
 and `POST /api/v1/auth/logout`. Login, logout, and `PUT /api/v1/password` require the CSRF
@@ -54,7 +55,13 @@ Active members may list and read categories and beneficiaries under
 `/api/v1/households/{householdId}/categories` and
 `/api/v1/households/{householdId}/beneficiaries`. Admins create, update, and
 archive those references. Bootstrap seeds collective `Household` and `Other`
-beneficiaries. Bulk order ETag routes and expense wiring are not included yet.
+beneficiaries. Bulk order ETag routes are not included yet.
+
+Active members may create expenses under
+`/api/v1/households/{householdId}/expenses` with an `Idempotency-Key`. Creation
+writes an immutable EXPENSE revision and a debit posting, and increments the
+account `balance_version`. Members may list and read current POSTED expenses.
+Replace, void, entry-options, and filtered list summaries are not included yet.
 
 Recover an existing active admin without HTTP by supplying a runtime password:
 

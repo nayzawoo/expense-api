@@ -8,10 +8,13 @@ browser application are not.
 
 Session login uses `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me`,
 and `POST /api/v1/auth/logout`. Login, logout, and `PUT /api/v1/password` require the CSRF
-header from the bootstrap response. The session cookie is `expense-session`, HttpOnly, and
-SameSite Lax. Idle timeout is 7 days, and a login ends 30 days after it starts. A user who
-must change their password can call only the CSRF, current-user, password-change, and logout
-routes. A successful password change revokes every session for that user.
+header from the bootstrap response. Successful login rotates the session id and replaces the
+anonymous CSRF token; callers must fetch a fresh CSRF token before the next write. The session
+cookie is `expense-session`, HttpOnly, and SameSite Lax. Idle timeout is 7 days, and a login
+ends 30 days after it starts. A user who must change their password can call only the CSRF,
+current-user, password-change, and logout routes. A successful password change revokes every
+session for that user. Temporary-password reset, password rotation, operator recovery, and
+login-email changes write identity audit events without storing credentials.
 
 Create the first household and admin with a one-shot process start. Supply the admin password
 only at runtime. Do not commit a password. The command refuses to run when a household already

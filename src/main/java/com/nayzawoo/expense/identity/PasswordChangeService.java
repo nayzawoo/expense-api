@@ -16,16 +16,19 @@ class PasswordChangeService {
     private final AppUserRepository users;
     private final PasswordEncoder passwordEncoder;
     private final SessionRevocationService sessionRevocation;
+    private final IdentityAuditService audit;
     private final Clock clock;
 
     PasswordChangeService(
             AppUserRepository users,
             PasswordEncoder passwordEncoder,
             SessionRevocationService sessionRevocation,
+            IdentityAuditService audit,
             Clock clock) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
         this.sessionRevocation = sessionRevocation;
+        this.audit = audit;
         this.clock = clock;
     }
 
@@ -44,6 +47,13 @@ class PasswordChangeService {
         }
         user.rotatePassword(passwordEncoder.encode(newPassword), clock.instant());
         users.save(user);
+        audit.record(
+                user.getHouseholdId(),
+                user.getId(),
+                IdentityAuditService.EVENT_PASSWORD_ROTATED,
+                IdentityAuditService.RESOURCE_USER,
+                user.getId(),
+                IdentityAuditService.targetUserDetails(user.getId()));
         sessionRevocation.revokeAllForEmail(user.getEmail());
     }
 }

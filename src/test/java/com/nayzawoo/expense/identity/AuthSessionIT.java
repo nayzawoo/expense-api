@@ -59,6 +59,7 @@ class AuthSessionIT {
     void clearIdentity() {
         when(clock.instant()).thenReturn(Instant.parse("2026-01-01T00:00:00Z"));
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
+        jdbc.update("DELETE FROM audit_event");
         jdbc.update("DELETE FROM app_user");
         jdbc.update("DELETE FROM household");
         householdId = UUID.randomUUID();
@@ -108,6 +109,40 @@ class AuthSessionIT {
         ResponseEntity<String> afterLogout = rest.exchange(
                 "/api/v1/auth/me", HttpMethod.GET, jsonEntity(null, login.cookie(), null), String.class);
         assertThat(afterLogout.getStatusCode().value()).isEqualTo(401);
+    }
+
+    @Test
+    void successfulLoginReplacesAnonymousCsrfToken() {
+        insertUser("ada@example.com", "correct-password", "ADMIN", "ACTIVE", false);
+        Session anonymous = csrf();
+        ResponseEntity<String> login = rest.exchange(
+                "/api/v1/auth/login",
+                HttpMethod.POST,
+                jsonEntity(
+                        "{\"email\":\"ada@example.com\",\"password\":\"correct-password\"}",
+                        anonymous.cookie(),
+                        anonymous),
+                String.class);
+        assertThat(login.getStatusCode().value()).isEqualTo(200);
+        String cookie = sessionCookie(login);
+        assertThat(cookie).isNotNull();
+        String sessionCookieValue = cookie.split(";", 2)[0];
+
+        ResponseEntity<String> stale = rest.exchange(
+                "/api/v1/auth/logout",
+                HttpMethod.POST,
+                jsonEntity(null, sessionCookieValue, anonymous),
+                String.class);
+        assertThat(stale.getStatusCode().value()).isEqualTo(403);
+
+        Session refreshed = csrfFor(sessionCookieValue);
+        assertThat(refreshed.token()).isNotEqualTo(anonymous.token());
+        ResponseEntity<String> logout = rest.exchange(
+                "/api/v1/auth/logout",
+                HttpMethod.POST,
+                jsonEntity(null, sessionCookieValue, refreshed),
+                String.class);
+        assertThat(logout.getStatusCode().value()).isEqualTo(204);
     }
 
     @Test
@@ -196,6 +231,13 @@ class AuthSessionIT {
                 .isTrue();
         assertThat(jdbc.queryForObject(
                         "select security_version from app_user where email = 'ada@example.com'", Long.class))
+                .isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                        """
+                        select count(*) from audit_event
+                        where event_type = 'PASSWORD_ROTATED' and resource_type = 'USER'
+                        """,
+                        Long.class))
                 .isEqualTo(1L);
     }
 
@@ -299,23 +341,36 @@ class AuthSessionIT {
                 String.class);
         assertThat(result.getStatusCode().value()).isEqualTo(200);
         String cookie = sessionCookie(result);
+        String sessionCookieValue = cookie == null ? csrf.cookie() : cookie.split(";", 2)[0];
+        Session refreshed = csrfFor(sessionCookieValue);
         return new Session(
-                cookie == null ? csrf.cookie() : cookie.split(";", 2)[0],
+                sessionCookieValue,
                 cookie == null ? csrf.setCookie() : cookie,
-                csrf.headerName(),
-                csrf.token(),
+                refreshed.headerName(),
+                refreshed.token(),
                 json.readTree(result.getBody()));
     }
 
     private Session csrf() {
-        ResponseEntity<String> result = rest.getForEntity("/api/v1/auth/csrf", String.class);
+        return csrfFor(null);
+    }
+
+    private Session csrfFor(String cookie) {
+        HttpHeaders headers = new HttpHeaders();
+        if (cookie != null) {
+            headers.add(HttpHeaders.COOKIE, cookie);
+        }
+        ResponseEntity<String> result =
+                rest.exchange("/api/v1/auth/csrf", HttpMethod.GET, new HttpEntity<>(headers), String.class);
         assertThat(result.getStatusCode().value()).isEqualTo(200);
         JsonNode body = json.readTree(result.getBody());
-        String cookie = sessionCookie(result);
-        assertThat(cookie).isNotNull();
+        String responseCookie = sessionCookie(result);
+        String sessionCookieValue =
+                responseCookie == null ? cookie : responseCookie.split(";", 2)[0];
+        assertThat(sessionCookieValue).isNotNull();
         return new Session(
-                cookie.split(";", 2)[0],
-                cookie,
+                sessionCookieValue,
+                responseCookie == null ? cookie : responseCookie,
                 body.get("headerName").asString(),
                 body.get("token").asString(),
                 body);

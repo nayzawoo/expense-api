@@ -10,12 +10,17 @@ class RecoveryService {
     private final AppUserRepository users;
     private final PasswordEncoder passwordEncoder;
     private final SessionRevocationService sessionRevocation;
+    private final IdentityAuditService audit;
 
     RecoveryService(
-            AppUserRepository users, PasswordEncoder passwordEncoder, SessionRevocationService sessionRevocation) {
+            AppUserRepository users,
+            PasswordEncoder passwordEncoder,
+            SessionRevocationService sessionRevocation,
+            IdentityAuditService audit) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
         this.sessionRevocation = sessionRevocation;
+        this.audit = audit;
     }
 
     @Transactional
@@ -35,6 +40,13 @@ class RecoveryService {
         }
         user.recoverAccess(passwordEncoder.encode(adminPassword));
         users.save(user);
+        audit.record(
+                user.getHouseholdId(),
+                null,
+                IdentityAuditService.EVENT_OPERATOR_RECOVERY,
+                IdentityAuditService.RESOURCE_USER,
+                user.getId(),
+                IdentityAuditService.targetUserDetails(user.getId()));
         sessionRevocation.revokeAllForEmail(user.getEmail());
         return new RecoveryResult(user.getId(), user.getEmail(), user.getSecurityVersion());
     }

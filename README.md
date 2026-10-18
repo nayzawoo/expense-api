@@ -5,8 +5,8 @@ Flyway and PostgreSQL 18.6. One household, session login, password change,
 household user administration, profile self-service, admin account creation with
 an immutable opening entry, category/beneficiary metadata, expense create,
 list/detail, replace, and void, income create/list/detail/void, transfer
-create/list/detail/void, and admin reconciliation with adjustment list/detail/void
-are implemented. The browser application is not.
+create/list/detail/void, admin reconciliation with adjustment list/detail/void,
+and member account ledger paging are implemented. The browser application is not.
 
 Session login uses `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me`,
 and `POST /api/v1/auth/logout`. Login, logout, and `PUT /api/v1/password` require the CSRF
@@ -85,8 +85,15 @@ An admin may reconcile an ACTIVE account under
 `expectedBalanceVersion`, writes a signed ADJUSTMENT for the delta with immutable
 balance snapshots, and bumps `balance_version`. Admins may list and read
 adjustments under `/api/v1/households/{householdId}/adjustments` and void a
-POSTED adjustment with `If-Match` and an `Idempotency-Key`. Member ledger paging,
-entry-options, filtered list summaries, and reports are not included yet.
+POSTED adjustment with `If-Match` and an `Idempotency-Key`.
+
+Active members may read
+`/api/v1/households/{householdId}/accounts/{accountId}/ledger` with optional
+`from`/`to`/`page`/`size`. The response is one snapshot with period opening and
+closing balances plus paged APPLY/REVERSE postings and running balances.
+Adjustment amount and date are visible; reconciliation reason text and
+actual-balance snapshots are not. Entry-options, filtered list summaries, and
+reports are not included yet.
 
 Recover an existing active admin without HTTP by supplying a runtime password:
 

@@ -43,6 +43,15 @@ class AppUser {
 
     protected AppUser() {}
 
+    void rotatePassword(String passwordHash, Instant now) {
+        this.passwordHash = passwordHash;
+        this.mustChangePassword = false;
+        if (this.passwordChangedAt == null) {
+            this.passwordChangedAt = now;
+        }
+        this.securityVersion += 1;
+    }
+
     UUID getId() {
         return id;
     }

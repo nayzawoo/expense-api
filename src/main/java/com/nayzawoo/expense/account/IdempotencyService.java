@@ -84,6 +84,15 @@ class IdempotencyService {
         }
     }
 
+    static String canonical(String... fields) {
+        StringBuilder builder = new StringBuilder();
+        for (String field : fields) {
+            String value = field == null ? "" : field;
+            builder.append(value.length()).append(':').append(value).append('|');
+        }
+        return builder.toString();
+    }
+
     static String hashRequest(String canonical) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");

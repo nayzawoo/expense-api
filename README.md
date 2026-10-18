@@ -41,7 +41,7 @@ and revokes every session for that user.
 An admin may create accounts under `/api/v1/households/{householdId}/accounts` with
 an `Idempotency-Key`. Creation is atomic with the immutable opening revision and
 postings. Active household members may list and read account balances derived from
-postings.
+postings as of the household's current local date.
 
 Recover an existing active admin without HTTP by supplying a runtime password:
 

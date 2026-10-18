@@ -161,6 +161,131 @@ class LedgerOpeningMigrationIT {
                 .isEqualByComparingTo("1000");
     }
 
+    @Test
+    void rejectsExtraOpeningPostingOpenedOnChangeAndLaterRevision() {
+        JdbcTemplate jdbc = jdbc();
+        UUID householdId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        UUID transactionId = UUID.randomUUID();
+        seedHousehold(jdbc, householdId, userId);
+        insertCompleteOpening(jdbc, householdId, userId, accountId, transactionId, new BigDecimal("1000"));
+
+        assertThatThrownBy(() -> jdbc.update(
+                        """
+                        INSERT INTO account_posting (
+                            id, household_id, transaction_id, revision_no, account_id, effective_date,
+                            currency_code, signed_amount, leg_no, role, reverses_posting_id, recorded_at)
+                        VALUES (?, ?, ?, 1, ?, DATE '2026-01-10', 'MMK', 50, 2, 'APPLY', NULL, ?)
+                        """,
+                        UUID.randomUUID(),
+                        householdId,
+                        transactionId,
+                        accountId,
+                        Timestamp.from(Instant.parse("2026-01-15T00:00:00Z"))))
+                .hasMessageContaining("exactly one APPLY posting");
+
+        assertThatThrownBy(() -> jdbc.update(
+                        "UPDATE account SET opened_on = DATE '2026-01-11' WHERE id = ?", accountId))
+                .hasMessageContaining("opening fields are immutable");
+
+        assertThatThrownBy(() -> jdbc.update(
+                        """
+                        INSERT INTO transaction_revision (
+                            household_id, transaction_id, revision_no, operation, state, previous_revision_no,
+                            effective_date, amount, currency_code, account_id, recorded_by_user_id, recorded_at,
+                            account_name_snapshot, actor_display_name_snapshot)
+                        VALUES (?, ?, 2, 'REPLACE', 'POSTED', 1, DATE '2026-01-10', 1000, 'MMK', ?, ?, ?, 'Cash', 'Ada')
+                        """,
+                        householdId,
+                        transactionId,
+                        accountId,
+                        userId,
+                        Timestamp.from(Instant.parse("2026-01-15T00:00:00Z"))))
+                .hasMessageContaining("only revision 1");
+    }
+
+    private static void insertCompleteOpening(
+            JdbcTemplate jdbc,
+            UUID householdId,
+            UUID userId,
+            UUID accountId,
+            UUID transactionId,
+            BigDecimal amount) {
+        Timestamp now = Timestamp.from(Instant.parse("2026-01-15T00:00:00Z"));
+        jdbc.execute((Connection connection) -> {
+            connection.setAutoCommit(false);
+            try {
+                try (var account = connection.prepareStatement(
+                        """
+                        INSERT INTO account (
+                            id, household_id, name, owner_label, type, currency_code, opened_on,
+                            status, sort_order, version, balance_version, created_at, updated_at)
+                        VALUES (?, ?, 'Cash', 'Ada', 'CASH', 'MMK', DATE '2026-01-10',
+                                'ACTIVE', 1, 0, 1, ?, ?)
+                        """)) {
+                    account.setObject(1, accountId);
+                    account.setObject(2, householdId);
+                    account.setTimestamp(3, now);
+                    account.setTimestamp(4, now);
+                    account.executeUpdate();
+                }
+                try (var head = connection.prepareStatement(
+                        """
+                        INSERT INTO financial_transaction (
+                            id, household_id, kind, created_by_user_id, current_revision_no, version,
+                            opening_account_id, created_at)
+                        VALUES (?, ?, 'OPENING', ?, 1, 0, ?, ?)
+                        """)) {
+                    head.setObject(1, transactionId);
+                    head.setObject(2, householdId);
+                    head.setObject(3, userId);
+                    head.setObject(4, accountId);
+                    head.setTimestamp(5, now);
+                    head.executeUpdate();
+                }
+                try (var revision = connection.prepareStatement(
+                        """
+                        INSERT INTO transaction_revision (
+                            household_id, transaction_id, revision_no, operation, state, previous_revision_no,
+                            effective_date, amount, currency_code, account_id, recorded_by_user_id, recorded_at,
+                            account_name_snapshot, actor_display_name_snapshot)
+                        VALUES (?, ?, 1, 'CREATE', 'POSTED', NULL, DATE '2026-01-10', ?, 'MMK', ?, ?, ?, 'Cash', 'Ada')
+                        """)) {
+                    revision.setObject(1, householdId);
+                    revision.setObject(2, transactionId);
+                    revision.setBigDecimal(3, amount);
+                    revision.setObject(4, accountId);
+                    revision.setObject(5, userId);
+                    revision.setTimestamp(6, now);
+                    revision.executeUpdate();
+                }
+                if (amount.compareTo(BigDecimal.ZERO) != 0) {
+                    try (var posting = connection.prepareStatement(
+                            """
+                            INSERT INTO account_posting (
+                                id, household_id, transaction_id, revision_no, account_id, effective_date,
+                                currency_code, signed_amount, leg_no, role, reverses_posting_id, recorded_at)
+                            VALUES (?, ?, ?, 1, ?, DATE '2026-01-10', 'MMK', ?, 1, 'APPLY', NULL, ?)
+                            """)) {
+                        posting.setObject(1, UUID.randomUUID());
+                        posting.setObject(2, householdId);
+                        posting.setObject(3, transactionId);
+                        posting.setObject(4, accountId);
+                        posting.setBigDecimal(5, amount);
+                        posting.setTimestamp(6, now);
+                        posting.executeUpdate();
+                    }
+                }
+                connection.commit();
+            } catch (Exception ex) {
+                connection.rollback();
+                throw ex;
+            }
+            return null;
+        });
+    }
+
     private static void seedHousehold(JdbcTemplate jdbc, UUID householdId, UUID userId) {
         jdbc.update(
                 """

@@ -104,8 +104,22 @@ class AccountIT {
         JsonNode body = json.readTree(created.getBody());
         assertThat(body.get("openingAmount").asString()).isEqualTo("1000");
         assertThat(body.get("currentBalance").asString()).isEqualTo("1000");
+        assertThat(body.get("balanceAsOf").asString()).isEqualTo("2026-01-15");
         assertThat(body.get("balanceVersion").asLong()).isEqualTo(1L);
         assertThat(body.get("negativeBalanceWarning").asBoolean()).isFalse();
+
+        ResponseEntity<String> changedPayload = rest.exchange(
+                "/api/v1/households/" + householdId + "/accounts",
+                HttpMethod.POST,
+                jsonEntity(
+                        """
+                        {"name":"Cash","type":"CASH","ownerLabel":"Other","openedOn":"2026-01-10","openingAmount":"1000","sortOrder":1}
+                        """,
+                        admin.cookie(),
+                        admin,
+                        "create-cash-1"),
+                String.class);
+        assertThat(changedPayload.getStatusCode().value()).isEqualTo(409);
 
         ResponseEntity<String> replay = rest.exchange(
                 "/api/v1/households/" + householdId + "/accounts",

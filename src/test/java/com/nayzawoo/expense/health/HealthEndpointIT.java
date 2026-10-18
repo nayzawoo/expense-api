@@ -61,17 +61,27 @@ class HealthEndpointIT {
     @Test
     void jpaValidatesFlywaySchemaWithoutCreatingApplicationTables() {
         assertThat(entityManagerFactory.isOpen()).isTrue();
-        assertThat(entityManagerFactory.getMetamodel().getEntities()).isEmpty();
+        assertThat(entityManagerFactory.getMetamodel().getEntities())
+                .extracting(entity -> entity.getName())
+                .containsExactlyInAnyOrder("Household", "AppUser");
         assertThat(environment.getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
         assertThat(environment.getProperty("spring.jpa.open-in-view")).isEqualTo("false");
 
-        Integer unexpectedTables = jdbcTemplate.queryForObject("""
+        Long identityMigration = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '2' and success",
+                Long.class);
+        assertThat(identityMigration).isEqualTo(1L);
+
+        Integer identityTables = jdbcTemplate.queryForObject(
+                """
                 SELECT count(*)
                 FROM information_schema.tables
                 WHERE table_schema = 'public'
                   AND table_type = 'BASE TABLE'
-                  AND table_name <> 'flyway_schema_history'
-                """, Integer.class);
-        assertThat(unexpectedTables).isZero();
+                  AND table_name IN (
+                    'household', 'app_user', 'spring_session', 'spring_session_attributes')
+                """,
+                Integer.class);
+        assertThat(identityTables).isEqualTo(4);
     }
 }

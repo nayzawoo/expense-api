@@ -56,7 +56,7 @@ class HealthProbesIT {
                 .doesNotContain("components", "details", "jdbc:", "PostgreSQL");
         for (String endpoint : new String[] {"env", "configprops", "beans", "metrics", "heapdump"}) {
             assertThat(restTemplate.getForEntity("/actuator/" + endpoint, String.class).getStatusCode())
-                    .isEqualTo(HttpStatus.NOT_FOUND);
+                    .isEqualTo(HttpStatus.UNAUTHORIZED);
         }
     }
 

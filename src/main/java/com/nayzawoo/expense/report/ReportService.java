@@ -81,21 +81,137 @@ class ReportService {
                 comparison,
                 Money.format(totalBalance),
                 preview.stream().map(AccountBalanceView::toResponse).toList(),
-                new OverviewView(
-                        Money.format(expense),
-                        Money.format(income),
-                        Money.format(net),
-                        Money.format(previousExpense),
-                        Money.format(expenseDifference),
-                        expenseDifferencePercent == null ? null : expenseDifferencePercent.toPlainString(),
+                overview(
+                        expense,
+                        income,
+                        previousExpense,
+                        expenseDifference,
+                        expenseDifferencePercent,
                         direction,
-                        null,
                         null),
                 pace,
                 categoryBreakdown,
                 categoryChanges,
                 beneficiarySpending,
                 recent.stream().map(ActivityView::toResponse).toList());
+    }
+
+    AnalyticsView analytics(ExpenseUser actor, UUID householdId, LocalDate asOfRaw) {
+        LockedHouseholdActor locked = financialAccess.requireHouseholdMember(actor, householdId);
+        LocalDate today = householdToday(locked.timezone());
+        LocalDate asOf = asOfRaw == null ? today : asOfRaw;
+        if (asOf.isAfter(today)) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "FUTURE_DATE");
+        }
+        PeriodView period = currentPeriod(asOf);
+        PeriodView comparison = comparisonPeriod(asOf);
+        BigDecimal expense = flowTotal(locked.householdId(), "EXPENSE", period.from(), period.to());
+        BigDecimal income = flowTotal(locked.householdId(), "INCOME", period.from(), period.to());
+        BigDecimal previousExpense =
+                flowTotal(locked.householdId(), "EXPENSE", comparison.from(), comparison.to());
+        BigDecimal expenseDifference = expense.subtract(previousExpense);
+        BigDecimal expenseDifferencePercent = percentOrNull(expenseDifference, previousExpense);
+        List<LocalDate> openings = accountOpenedOns(locked.householdId());
+        String fiveMonthAverage = previousFiveMonthAverage(locked.householdId(), asOf, openings);
+        Map<UUID, NamedAmount> currentByCategory =
+                expenseByCategory(locked.householdId(), period.from(), period.to());
+        Map<UUID, NamedAmount> previousByCategory =
+                expenseByCategory(locked.householdId(), comparison.from(), comparison.to());
+        return new AnalyticsView(
+                locked.currency(),
+                locked.timezone(),
+                asOf,
+                period,
+                comparison,
+                overview(
+                        expense,
+                        income,
+                        previousExpense,
+                        expenseDifference,
+                        expenseDifferencePercent,
+                        directionOf(expenseDifference),
+                        fiveMonthAverage),
+                monthlyTrend(locked.householdId(), asOf, openings),
+                categoryBreakdown(currentByCategory, expense),
+                categoryChanges(currentByCategory, previousByCategory),
+                null);
+    }
+
+    private static OverviewView overview(
+            BigDecimal expense,
+            BigDecimal income,
+            BigDecimal previousExpense,
+            BigDecimal expenseDifference,
+            BigDecimal expenseDifferencePercent,
+            String direction,
+            String previousFiveMonthAverage) {
+        return new OverviewView(
+                Money.format(expense),
+                Money.format(income),
+                Money.format(income.subtract(expense)),
+                Money.format(previousExpense),
+                Money.format(expenseDifference),
+                expenseDifferencePercent == null ? null : expenseDifferencePercent.toPlainString(),
+                direction,
+                previousFiveMonthAverage,
+                null);
+    }
+
+    private List<MonthTrendResponse> monthlyTrend(UUID householdId, LocalDate asOf, List<LocalDate> openings) {
+        YearMonth current = YearMonth.from(asOf);
+        List<MonthTrendResponse> points = new ArrayList<>(6);
+        for (int offset = 5; offset >= 0; offset--) {
+            YearMonth month = current.minusMonths(offset);
+            LocalDate from = month.atDay(1);
+            boolean isPartial = month.equals(current);
+            LocalDate to = isPartial ? asOf : month.atEndOfMonth();
+            boolean covered = monthCovered(openings, from);
+            if (!covered) {
+                points.add(new MonthTrendResponse(month.toString(), null, isPartial, "UNCOVERED"));
+                continue;
+            }
+            BigDecimal monthExpense = flowTotal(householdId, "EXPENSE", from, to);
+            points.add(new MonthTrendResponse(
+                    month.toString(), Money.format(monthExpense), isPartial, "COMPLETE"));
+        }
+        return points;
+    }
+
+    private String previousFiveMonthAverage(UUID householdId, LocalDate asOf, List<LocalDate> openings) {
+        YearMonth current = YearMonth.from(asOf);
+        List<BigDecimal> completeMonths = new ArrayList<>(5);
+        for (int offset = 5; offset >= 1; offset--) {
+            YearMonth month = current.minusMonths(offset);
+            LocalDate from = month.atDay(1);
+            if (!monthCovered(openings, from)) {
+                return null;
+            }
+            completeMonths.add(flowTotal(householdId, "EXPENSE", from, month.atEndOfMonth()));
+        }
+        if (completeMonths.size() != 5) {
+            return null;
+        }
+        BigDecimal sum = completeMonths.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        return Money.format(sum.divide(new BigDecimal("5"), 0, RoundingMode.HALF_EVEN));
+    }
+
+    private List<LocalDate> accountOpenedOns(UUID householdId) {
+        return jdbc.query(
+                "SELECT opened_on FROM account WHERE household_id = ?",
+                (rs, rowNum) -> rs.getDate(1).toLocalDate(),
+                householdId);
+    }
+
+    private static boolean monthCovered(List<LocalDate> openings, LocalDate monthStart) {
+        if (openings.isEmpty()) {
+            return false;
+        }
+        for (LocalDate openedOn : openings) {
+            if (openedOn.isAfter(monthStart)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private List<PacePointResponse> spendingPace(
@@ -461,6 +577,20 @@ class ReportService {
             CategoryChangesResponse categoryChanges,
             List<BeneficiarySpendingResponse> beneficiarySpending,
             List<ActivityResponse> recentActivity) {}
+
+    record AnalyticsView(
+            String currency,
+            String timeZone,
+            LocalDate asOf,
+            PeriodView period,
+            PeriodView comparisonPeriod,
+            OverviewView overview,
+            List<MonthTrendResponse> monthlyTrend,
+            List<CategoryBreakdownResponse> categoryBreakdown,
+            CategoryChangesResponse categoryChanges,
+            Object insight) {}
+
+    record MonthTrendResponse(String month, String expense, boolean isPartial, String coverage) {}
 
     record PeriodView(LocalDate from, LocalDate to) {
         PeriodResponse toResponse() {

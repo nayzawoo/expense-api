@@ -6,8 +6,8 @@ household user administration, profile self-service, admin account creation with
 an immutable opening entry, category/beneficiary metadata, expense create,
 list/detail, replace, and void, income create/list/detail/void, transfer
 create/list/detail/void, admin reconciliation with adjustment list/detail/void,
-member account ledger paging, and a member dashboard core read are implemented.
-The browser application is not.
+member account ledger paging, member dashboard reads, and a member analytics core
+read are implemented. The browser application is not.
 
 Session login uses `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me`,
 and `POST /api/v1/auth/logout`. Login, logout, and `PUT /api/v1/password` require the CSRF
@@ -100,8 +100,13 @@ Active members may call
 period totals (`expense`/`income`/`net`), account balances, recent
 expense/income/transfer activity, spending pace, category breakdown/changes,
 and beneficiary spending. Transfers and adjustments do not inflate income or
-expense. Five-month averages, coverage metadata, and analytics remain deferred.
-Entry-options and filtered list summaries are not included yet.
+expense.
+
+Active members may call
+`GET /api/v1/households/{householdId}/reports/analytics` for overview totals,
+six-month expense trend (partial current month; simple opening-based coverage),
+and category breakdown/changes. Insight text and richer coverage objects remain
+deferred. Entry-options and filtered list summaries are not included yet.
 
 Recover an existing active admin without HTTP by supplying a runtime password:
 

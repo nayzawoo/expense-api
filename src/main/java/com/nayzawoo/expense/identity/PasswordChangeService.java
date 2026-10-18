@@ -1,12 +1,9 @@
 package com.nayzawoo.expense.identity;
 
 import java.time.Clock;
-import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.session.FindByIndexNameSessionRepository;
-import org.springframework.session.Session;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -18,17 +15,17 @@ class PasswordChangeService {
 
     private final AppUserRepository users;
     private final PasswordEncoder passwordEncoder;
-    private final FindByIndexNameSessionRepository<? extends Session> sessions;
+    private final SessionRevocationService sessionRevocation;
     private final Clock clock;
 
     PasswordChangeService(
             AppUserRepository users,
             PasswordEncoder passwordEncoder,
-            FindByIndexNameSessionRepository<? extends Session> sessions,
+            SessionRevocationService sessionRevocation,
             Clock clock) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
-        this.sessions = sessions;
+        this.sessionRevocation = sessionRevocation;
         this.clock = clock;
     }
 
@@ -47,14 +44,6 @@ class PasswordChangeService {
         }
         user.rotatePassword(passwordEncoder.encode(newPassword), clock.instant());
         users.save(user);
-        revokeSessions(user.getEmail());
-    }
-
-    private void revokeSessions(String email) {
-        Map<String, ? extends Session> matching =
-                sessions.findByIndexNameAndIndexValue(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME, email);
-        for (String sessionId : matching.keySet()) {
-            sessions.deleteById(sessionId);
-        }
+        sessionRevocation.revokeAllForEmail(user.getEmail());
     }
 }

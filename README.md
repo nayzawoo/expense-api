@@ -107,9 +107,11 @@ opening gap. Transfers and adjustments do not inflate income or expense.
 Active members may call
 `GET /api/v1/households/{householdId}/reports/analytics` for overview totals,
 six-month expense trend (partial current month), category breakdown/changes,
-and the same coverage / elapsed-day average rules as the dashboard. Insight
-text remains deferred. Entry-options and filtered list summaries are not
-included yet.
+and the same coverage / elapsed-day average rules as the dashboard. Analytics
+also returns structured `insight` (`kind`, optional `metric`, `contributors`)
+for localized frontend text when comparison coverage is complete; otherwise
+`insight` is null. Entry-options and filtered list summaries are not included
+yet.
 
 Recover an existing active admin without HTTP by supplying a runtime password:
 

@@ -2,7 +2,6 @@ package com.nayzawoo.expense.identity;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.http.HttpSession;
 import java.time.Clock;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -12,6 +11,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,14 +27,17 @@ class AuthController {
 
     private final AuthenticationManager authenticationManager;
     private final SecurityContextRepository securityContextRepository;
+    private final SessionAuthenticationStrategy sessionAuthenticationStrategy;
     private final Clock clock;
 
     AuthController(
             AuthenticationManager authenticationManager,
             SecurityContextRepository securityContextRepository,
+            SessionAuthenticationStrategy sessionAuthenticationStrategy,
             Clock clock) {
         this.authenticationManager = authenticationManager;
         this.securityContextRepository = securityContextRepository;
+        this.sessionAuthenticationStrategy = sessionAuthenticationStrategy;
         this.clock = clock;
     }
 
@@ -57,10 +60,7 @@ class AuthController {
             SecurityContext context = SecurityContextHolder.createEmptyContext();
             context.setAuthentication(authentication);
             SecurityContextHolder.setContext(context);
-            HttpSession existing = httpRequest.getSession(false);
-            if (existing != null) {
-                httpRequest.changeSessionId();
-            }
+            sessionAuthenticationStrategy.onAuthentication(authentication, httpRequest, httpResponse);
             securityContextRepository.saveContext(context, httpRequest, httpResponse);
             httpRequest.getSession().setAttribute(SessionAttributes.AUTHENTICATED_AT, clock.instant());
             return CurrentUserResponse.from((ExpenseUser) authentication.getPrincipal());

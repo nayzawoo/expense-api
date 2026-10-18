@@ -15,6 +15,7 @@ class HouseholdUserService {
     private final AppUserRepository users;
     private final PasswordEncoder passwordEncoder;
     private final SessionRevocationService sessionRevocation;
+    private final IdentityAuditService audit;
     private final IdentityLocks locks;
 
     HouseholdUserService(
@@ -22,11 +23,13 @@ class HouseholdUserService {
             AppUserRepository users,
             PasswordEncoder passwordEncoder,
             SessionRevocationService sessionRevocation,
+            IdentityAuditService audit,
             IdentityLocks locks) {
         this.households = households;
         this.users = users;
         this.passwordEncoder = passwordEncoder;
         this.sessionRevocation = sessionRevocation;
+        this.audit = audit;
         this.locks = locks;
     }
 
@@ -143,6 +146,15 @@ class HouseholdUserService {
             }
         }
         users.save(target);
+        if (emailChanged) {
+            audit.record(
+                    householdId,
+                    actor.getId(),
+                    IdentityAuditService.EVENT_LOGIN_EMAIL_CHANGED,
+                    IdentityAuditService.RESOURCE_USER,
+                    target.getId(),
+                    IdentityAuditService.emailChangeDetails(target.getId(), previousEmail, target.getEmail()));
+        }
         if (disabling || emailChanged) {
             sessionRevocation.revokeAllForEmail(previousEmail);
         }
@@ -166,6 +178,13 @@ class HouseholdUserService {
         }
         target.assignTemporaryPassword(passwordEncoder.encode(temporaryPassword));
         users.save(target);
+        audit.record(
+                householdId,
+                actor.getId(),
+                IdentityAuditService.EVENT_TEMPORARY_PASSWORD_ASSIGNED,
+                IdentityAuditService.RESOURCE_USER,
+                target.getId(),
+                IdentityAuditService.targetUserDetails(target.getId()));
         sessionRevocation.revokeAllForEmail(target.getEmail());
     }
 

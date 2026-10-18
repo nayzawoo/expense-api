@@ -12,12 +12,17 @@ class ProfileService {
     private final AppUserRepository users;
     private final PasswordEncoder passwordEncoder;
     private final SessionRevocationService sessionRevocation;
+    private final IdentityAuditService audit;
 
     ProfileService(
-            AppUserRepository users, PasswordEncoder passwordEncoder, SessionRevocationService sessionRevocation) {
+            AppUserRepository users,
+            PasswordEncoder passwordEncoder,
+            SessionRevocationService sessionRevocation,
+            IdentityAuditService audit) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
         this.sessionRevocation = sessionRevocation;
+        this.audit = audit;
     }
 
     AppUser getProfile(ExpenseUser actor) {
@@ -62,6 +67,13 @@ class ProfileService {
         }
         users.save(user);
         if (emailChanged) {
+            audit.record(
+                    user.getHouseholdId(),
+                    user.getId(),
+                    IdentityAuditService.EVENT_LOGIN_EMAIL_CHANGED,
+                    IdentityAuditService.RESOURCE_USER,
+                    user.getId(),
+                    IdentityAuditService.emailChangeDetails(user.getId(), previousEmail, user.getEmail()));
             sessionRevocation.revokeAllForEmail(previousEmail);
         }
         return new ProfileUpdateResult(user, emailChanged);

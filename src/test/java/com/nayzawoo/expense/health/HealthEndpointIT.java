@@ -91,6 +91,10 @@ class HealthEndpointIT {
                 "select count(*) from flyway_schema_history where version = '7' and success",
                 Long.class);
         assertThat(expenseMigration).isEqualTo(1L);
+        Long expenseMutationMigration = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '8' and success",
+                Long.class);
+        assertThat(expenseMutationMigration).isEqualTo(1L);
 
         Integer identityTables = jdbcTemplate.queryForObject(
                 """

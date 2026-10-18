@@ -25,6 +25,8 @@ import tools.jackson.databind.json.JsonMapper;
 class ExpenseService {
 
     static final String CREATE_OPERATION = "POST /api/v1/households/{householdId}/expenses";
+    static final String REPLACE_OPERATION = "PUT /api/v1/households/{householdId}/expenses/{expenseId}";
+    static final String VOID_OPERATION = "POST /api/v1/households/{householdId}/expenses/{expenseId}/void";
 
     private final FinancialAccess financialAccess;
     private final IdempotencyService idempotency;
@@ -251,6 +253,258 @@ class ExpenseService {
         return new CreateResult(false, 201, transactionId, body);
     }
 
+
+    @Transactional
+    CreateResult replace(
+            ExpenseUser actor,
+            UUID householdId,
+            UUID expenseId,
+            String idempotencyKey,
+            String ifMatch,
+            LocalDate effectiveDate,
+            String amountRaw,
+            UUID accountId,
+            UUID categoryId,
+            UUID beneficiaryId,
+            String note,
+            String changeReason) {
+        LockedHouseholdActor locked = financialAccess.lockForFinancialWrite(actor, householdId);
+        long expectedVersion = requireIfMatch(ifMatch);
+        if (effectiveDate == null
+                || amountRaw == null
+                || accountId == null
+                || categoryId == null
+                || beneficiaryId == null
+                || changeReason == null
+                || changeReason.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        BigDecimal amount = Money.parsePositivePrincipal(amountRaw);
+        String normalizedNote = normalizeNote(note);
+        String normalizedReason = normalizeReason(changeReason);
+        LocalDate today = householdToday(locked.timezone());
+        if (effectiveDate.isAfter(today)) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "FUTURE_DATE");
+        }
+        String requestHash = IdempotencyService.hashRequest(IdempotencyService.canonical(
+                householdId.toString(),
+                expenseId.toString(),
+                Long.toString(expectedVersion),
+                effectiveDate.toString(),
+                Money.format(amount),
+                accountId.toString(),
+                categoryId.toString(),
+                beneficiaryId.toString(),
+                normalizedNote == null ? "" : normalizedNote,
+                normalizedReason));
+        var existing = idempotency.begin(
+                locked.householdId(), locked.userId(), REPLACE_OPERATION, idempotencyKey, requestHash);
+        if (existing.isPresent()) {
+            IdempotencyService.Replay replay = existing.get();
+            return new CreateResult(true, replay.httpStatus(), replay.resourceId(), replay.responseBody());
+        }
+        HeadRow head = lockHead(locked.householdId(), expenseId);
+        requireOwnerOrAdmin(locked, head.createdByUserId());
+        if (!"POSTED".equals(head.state())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT);
+        }
+        if (head.version() != expectedVersion) {
+            throw new ResponseStatusException(HttpStatus.PRECONDITION_FAILED, "VERSION_MISMATCH");
+        }
+        lockAccountsSorted(locked.householdId(), head.accountId(), accountId);
+        AccountRow newAccount = requireAccountForMutation(
+                locked.householdId(), accountId, head.accountId());
+        if (effectiveDate.isBefore(newAccount.openedOn())) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "DATE_BEFORE_OPENING");
+        }
+        CategoryRow category = requireCategoryForMutation(
+                locked.householdId(), categoryId, head.categoryId());
+        BeneficiaryRow beneficiary = requireBeneficiaryForMutation(
+                locked.householdId(), beneficiaryId, head.beneficiaryId());
+        Instant now = Instant.now(clock);
+        int newRevision = head.revisionNo() + 1;
+        jdbc.update(
+                """
+                INSERT INTO transaction_revision (
+                    household_id, transaction_id, revision_no, operation, state, previous_revision_no,
+                    effective_date, amount, currency_code, account_id, source_account_id,
+                    destination_account_id, category_id, beneficiary_id, note, change_reason,
+                    recorded_by_user_id, recorded_at, account_name_snapshot, actor_display_name_snapshot,
+                    category_name_snapshot, beneficiary_name_snapshot)
+                VALUES (?, ?, ?, 'REPLACE', 'POSTED', ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?)
+                """,
+                locked.householdId(),
+                expenseId,
+                newRevision,
+                head.revisionNo(),
+                Date.valueOf(effectiveDate),
+                amount,
+                locked.currency(),
+                newAccount.id(),
+                category.id(),
+                beneficiary.id(),
+                normalizedNote,
+                normalizedReason,
+                locked.userId(),
+                Timestamp.from(now),
+                newAccount.name(),
+                actor.getDisplayName(),
+                category.name(),
+                beneficiary.name());
+        reverseApplyLegs(locked.householdId(), expenseId, head.revisionNo(), newRevision, now);
+        jdbc.update(
+                """
+                INSERT INTO account_posting (
+                    id, household_id, transaction_id, revision_no, account_id, effective_date,
+                    currency_code, signed_amount, leg_no, role, reverses_posting_id, recorded_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'APPLY', NULL, ?)
+                """,
+                UUID.randomUUID(),
+                locked.householdId(),
+                expenseId,
+                newRevision,
+                newAccount.id(),
+                Date.valueOf(effectiveDate),
+                locked.currency(),
+                amount.negate(),
+                Timestamp.from(now));
+        long newVersion = head.version() + 1;
+        int updated = jdbc.update(
+                """
+                UPDATE financial_transaction
+                SET current_revision_no = ?, version = ?
+                WHERE household_id = ?
+                  AND id = ?
+                  AND version = ?
+                """,
+                newRevision,
+                newVersion,
+                locked.householdId(),
+                expenseId,
+                head.version());
+        if (updated != 1) {
+            throw new ResponseStatusException(HttpStatus.PRECONDITION_FAILED, "VERSION_MISMATCH");
+        }
+        bumpBalanceVersions(locked.householdId(), now, head.accountId(), newAccount.id());
+        ExpenseView view = loadView(locked, expenseId);
+        String body = writeJson(view);
+        idempotency.complete(
+                locked.householdId(),
+                locked.userId(),
+                REPLACE_OPERATION,
+                idempotencyKey,
+                200,
+                expenseId,
+                view.version(),
+                body);
+        return new CreateResult(false, 200, expenseId, body);
+    }
+
+    @Transactional
+    CreateResult voidExpense(
+            ExpenseUser actor,
+            UUID householdId,
+            UUID expenseId,
+            String idempotencyKey,
+            String ifMatch,
+            String reason) {
+        LockedHouseholdActor locked = financialAccess.lockForFinancialWrite(actor, householdId);
+        long expectedVersion = requireIfMatch(ifMatch);
+        if (reason == null || reason.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        String normalizedReason = normalizeReason(reason);
+        String requestHash = IdempotencyService.hashRequest(IdempotencyService.canonical(
+                householdId.toString(),
+                expenseId.toString(),
+                Long.toString(expectedVersion),
+                normalizedReason));
+        var existing = idempotency.begin(
+                locked.householdId(), locked.userId(), VOID_OPERATION, idempotencyKey, requestHash);
+        if (existing.isPresent()) {
+            IdempotencyService.Replay replay = existing.get();
+            return new CreateResult(true, replay.httpStatus(), replay.resourceId(), replay.responseBody());
+        }
+        HeadRow head = lockHead(locked.householdId(), expenseId);
+        requireOwnerOrAdmin(locked, head.createdByUserId());
+        if (!"POSTED".equals(head.state())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT);
+        }
+        if (head.version() != expectedVersion) {
+            throw new ResponseStatusException(HttpStatus.PRECONDITION_FAILED, "VERSION_MISMATCH");
+        }
+        lockAccountsSorted(locked.householdId(), head.accountId());
+        AccountRow account = requireAccountForMutation(
+                locked.householdId(), head.accountId(), head.accountId());
+        CategoryRow category = requireCategoryForMutation(
+                locked.householdId(), head.categoryId(), head.categoryId());
+        BeneficiaryRow beneficiary = requireBeneficiaryForMutation(
+                locked.householdId(), head.beneficiaryId(), head.beneficiaryId());
+        Instant now = Instant.now(clock);
+        int newRevision = head.revisionNo() + 1;
+        jdbc.update(
+                """
+                INSERT INTO transaction_revision (
+                    household_id, transaction_id, revision_no, operation, state, previous_revision_no,
+                    effective_date, amount, currency_code, account_id, source_account_id,
+                    destination_account_id, category_id, beneficiary_id, note, change_reason,
+                    recorded_by_user_id, recorded_at, account_name_snapshot, actor_display_name_snapshot,
+                    category_name_snapshot, beneficiary_name_snapshot)
+                VALUES (?, ?, ?, 'VOID', 'VOID', ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?)
+                """,
+                locked.householdId(),
+                expenseId,
+                newRevision,
+                head.revisionNo(),
+                Date.valueOf(head.effectiveDate()),
+                head.amount(),
+                locked.currency(),
+                account.id(),
+                category.id(),
+                beneficiary.id(),
+                head.note(),
+                normalizedReason,
+                locked.userId(),
+                Timestamp.from(now),
+                account.name(),
+                actor.getDisplayName(),
+                category.name(),
+                beneficiary.name());
+        reverseApplyLegs(locked.householdId(), expenseId, head.revisionNo(), newRevision, now);
+        long newVersion = head.version() + 1;
+        int updated = jdbc.update(
+                """
+                UPDATE financial_transaction
+                SET current_revision_no = ?, version = ?
+                WHERE household_id = ?
+                  AND id = ?
+                  AND version = ?
+                """,
+                newRevision,
+                newVersion,
+                locked.householdId(),
+                expenseId,
+                head.version());
+        if (updated != 1) {
+            throw new ResponseStatusException(HttpStatus.PRECONDITION_FAILED, "VERSION_MISMATCH");
+        }
+        bumpBalanceVersions(locked.householdId(), now, head.accountId());
+        ExpenseView view = loadView(locked, expenseId);
+        String body = writeJson(view);
+        idempotency.complete(
+                locked.householdId(),
+                locked.userId(),
+                VOID_OPERATION,
+                idempotencyKey,
+                200,
+                expenseId,
+                view.version(),
+                body);
+        return new CreateResult(false, 200, expenseId, body);
+    }
+
     private ExpenseView loadView(LockedHouseholdActor locked, UUID expenseId) {
         List<ExpenseView> rows = jdbc.query(
                 """
@@ -378,6 +632,172 @@ class ExpenseService {
     }
 
     private CategoryRow requireActiveCategory(UUID householdId, UUID categoryId) {
+        CategoryRow category = loadCategory(householdId, categoryId);
+        if (!"ACTIVE".equals(category.status())) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "CATEGORY_NOT_ACTIVE");
+        }
+        return category;
+    }
+
+    private BeneficiaryRow requireActiveBeneficiary(UUID householdId, UUID beneficiaryId) {
+        BeneficiaryRow beneficiary = loadBeneficiary(householdId, beneficiaryId);
+        if (!"ACTIVE".equals(beneficiary.status())) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "BENEFICIARY_NOT_ACTIVE");
+        }
+        return beneficiary;
+    }
+
+
+    private HeadRow lockHead(UUID householdId, UUID expenseId) {
+        HeadRow head = jdbc.query(
+                """
+                SELECT t.id, t.created_by_user_id, t.version, t.current_revision_no,
+                       r.state, r.effective_date, r.amount, r.note,
+                       r.account_id, r.category_id, r.beneficiary_id
+                FROM financial_transaction t
+                JOIN transaction_revision r
+                  ON r.household_id = t.household_id
+                 AND r.transaction_id = t.id
+                 AND r.revision_no = t.current_revision_no
+                WHERE t.household_id = ?
+                  AND t.id = ?
+                  AND t.kind = 'EXPENSE'
+                FOR UPDATE OF t
+                """,
+                rs -> {
+                    if (!rs.next()) {
+                        return null;
+                    }
+                    return new HeadRow(
+                            rs.getObject("id", UUID.class),
+                            rs.getObject("created_by_user_id", UUID.class),
+                            rs.getLong("version"),
+                            rs.getInt("current_revision_no"),
+                            rs.getString("state"),
+                            rs.getDate("effective_date").toLocalDate(),
+                            rs.getBigDecimal("amount"),
+                            rs.getString("note"),
+                            rs.getObject("account_id", UUID.class),
+                            rs.getObject("category_id", UUID.class),
+                            rs.getObject("beneficiary_id", UUID.class));
+                },
+                householdId,
+                expenseId);
+        if (head == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+        return head;
+    }
+
+    private void lockAccountsSorted(UUID householdId, UUID... accountIds) {
+        java.util.TreeSet<UUID> ordered = new java.util.TreeSet<>();
+        for (UUID accountId : accountIds) {
+            if (accountId != null) {
+                ordered.add(accountId);
+            }
+        }
+        for (UUID accountId : ordered) {
+            lockAccount(householdId, accountId);
+        }
+    }
+
+    private void reverseApplyLegs(
+            UUID householdId, UUID transactionId, int fromRevision, int toRevision, Instant recordedAt) {
+        List<PostingRow> applyLegs = jdbc.query(
+                """
+                SELECT id, account_id, effective_date, currency_code, signed_amount, leg_no
+                FROM account_posting
+                WHERE household_id = ?
+                  AND transaction_id = ?
+                  AND revision_no = ?
+                  AND role = 'APPLY'
+                ORDER BY leg_no ASC, id ASC
+                """,
+                (rs, rowNum) -> new PostingRow(
+                        rs.getObject("id", UUID.class),
+                        rs.getObject("account_id", UUID.class),
+                        rs.getDate("effective_date").toLocalDate(),
+                        rs.getString("currency_code"),
+                        rs.getBigDecimal("signed_amount"),
+                        rs.getInt("leg_no")),
+                householdId,
+                transactionId,
+                fromRevision);
+        if (applyLegs.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+        for (PostingRow leg : applyLegs) {
+            jdbc.update(
+                    """
+                    INSERT INTO account_posting (
+                        id, household_id, transaction_id, revision_no, account_id, effective_date,
+                        currency_code, signed_amount, leg_no, role, reverses_posting_id, recorded_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'REVERSE', ?, ?)
+                    """,
+                    UUID.randomUUID(),
+                    householdId,
+                    transactionId,
+                    toRevision,
+                    leg.accountId(),
+                    Date.valueOf(leg.effectiveDate()),
+                    leg.currencyCode(),
+                    leg.signedAmount().negate(),
+                    leg.legNo(),
+                    leg.id(),
+                    Timestamp.from(recordedAt));
+        }
+    }
+
+    private void bumpBalanceVersions(UUID householdId, Instant now, UUID... accountIds) {
+        java.util.TreeSet<UUID> ordered = new java.util.TreeSet<>();
+        for (UUID accountId : accountIds) {
+            if (accountId != null) {
+                ordered.add(accountId);
+            }
+        }
+        for (UUID accountId : ordered) {
+            int bumped = jdbc.update(
+                    """
+                    UPDATE account
+                    SET balance_version = balance_version + 1, updated_at = ?
+                    WHERE household_id = ?
+                      AND id = ?
+                    """,
+                    Timestamp.from(now),
+                    householdId,
+                    accountId);
+            if (bumped != 1) {
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR);
+            }
+        }
+    }
+
+    private AccountRow requireAccountForMutation(UUID householdId, UUID accountId, UUID retainedId) {
+        AccountRow account = lockAccount(householdId, accountId);
+        if ("ACTIVE".equals(account.status()) || accountId.equals(retainedId)) {
+            return account;
+        }
+        throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "ACCOUNT_NOT_ACTIVE");
+    }
+
+    private CategoryRow requireCategoryForMutation(UUID householdId, UUID categoryId, UUID retainedId) {
+        CategoryRow category = loadCategory(householdId, categoryId);
+        if ("ACTIVE".equals(category.status()) || categoryId.equals(retainedId)) {
+            return category;
+        }
+        throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "CATEGORY_NOT_ACTIVE");
+    }
+
+    private BeneficiaryRow requireBeneficiaryForMutation(
+            UUID householdId, UUID beneficiaryId, UUID retainedId) {
+        BeneficiaryRow beneficiary = loadBeneficiary(householdId, beneficiaryId);
+        if ("ACTIVE".equals(beneficiary.status()) || beneficiaryId.equals(retainedId)) {
+            return beneficiary;
+        }
+        throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "BENEFICIARY_NOT_ACTIVE");
+    }
+
+    private CategoryRow loadCategory(UUID householdId, UUID categoryId) {
         CategoryRow category = jdbc.query(
                 """
                 SELECT id, name, status
@@ -397,13 +817,10 @@ class ExpenseService {
         if (category == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
-        if (!"ACTIVE".equals(category.status())) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "CATEGORY_NOT_ACTIVE");
-        }
         return category;
     }
 
-    private BeneficiaryRow requireActiveBeneficiary(UUID householdId, UUID beneficiaryId) {
+    private BeneficiaryRow loadBeneficiary(UUID householdId, UUID beneficiaryId) {
         BeneficiaryRow beneficiary = jdbc.query(
                 """
                 SELECT id, name, kind, status
@@ -426,10 +843,36 @@ class ExpenseService {
         if (beneficiary == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
-        if (!"ACTIVE".equals(beneficiary.status())) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "BENEFICIARY_NOT_ACTIVE");
-        }
         return beneficiary;
+    }
+
+    private static void requireOwnerOrAdmin(LockedHouseholdActor locked, UUID createdByUserId) {
+        if (!locked.admin() && !locked.userId().equals(createdByUserId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+        }
+    }
+
+    private static long requireIfMatch(String ifMatch) {
+        if (ifMatch == null || ifMatch.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.PRECONDITION_REQUIRED);
+        }
+        String raw = ifMatch.trim();
+        if (raw.length() >= 2 && raw.startsWith("\"") && raw.endsWith("\"")) {
+            raw = raw.substring(1, raw.length() - 1);
+        }
+        try {
+            return Long.parseLong(raw);
+        } catch (NumberFormatException ex) {
+            throw new ResponseStatusException(HttpStatus.PRECONDITION_FAILED, "VERSION_MISMATCH");
+        }
+    }
+
+    private static String normalizeReason(String reason) {
+        String trimmed = reason.trim();
+        if (trimmed.isEmpty() || trimmed.length() > 500 || containsLineBreak(trimmed)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        return trimmed;
     }
 
     private LocalDate householdToday(String timezone) {
@@ -536,4 +979,25 @@ class ExpenseService {
     private record CategoryRow(UUID id, String name, String status) {}
 
     private record BeneficiaryRow(UUID id, String name, String kind, String status) {}
+
+    private record HeadRow(
+            UUID id,
+            UUID createdByUserId,
+            long version,
+            int revisionNo,
+            String state,
+            LocalDate effectiveDate,
+            BigDecimal amount,
+            String note,
+            UUID accountId,
+            UUID categoryId,
+            UUID beneficiaryId) {}
+
+    private record PostingRow(
+            UUID id,
+            UUID accountId,
+            LocalDate effectiveDate,
+            String currencyCode,
+            BigDecimal signedAmount,
+            int legNo) {}
 }

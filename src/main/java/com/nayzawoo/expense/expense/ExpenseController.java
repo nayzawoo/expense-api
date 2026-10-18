@@ -13,6 +13,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -71,6 +72,59 @@ class ExpenseController {
                 .body(result.responseBody());
     }
 
+    @PutMapping("/{expenseId}")
+    ResponseEntity<String> replace(
+            @AuthenticationPrincipal ExpenseUser actor,
+            @PathVariable UUID householdId,
+            @PathVariable UUID expenseId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "If-Match", required = false) String ifMatch,
+            @RequestBody ReplaceExpenseRequest request) {
+        ExpenseService.CreateResult result = expenses.replace(
+                actor,
+                householdId,
+                expenseId,
+                idempotencyKey,
+                ifMatch,
+                request == null ? null : request.effectiveDate(),
+                request == null ? null : request.amount(),
+                request == null ? null : request.accountId(),
+                request == null ? null : request.categoryId(),
+                request == null ? null : request.beneficiaryId(),
+                request == null ? null : request.note(),
+                request == null ? null : request.changeReason());
+        return mutationResponse(result);
+    }
+
+    @PostMapping("/{expenseId}/void")
+    ResponseEntity<String> voidExpense(
+            @AuthenticationPrincipal ExpenseUser actor,
+            @PathVariable UUID householdId,
+            @PathVariable UUID expenseId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "If-Match", required = false) String ifMatch,
+            @RequestBody VoidExpenseRequest request) {
+        ExpenseService.CreateResult result = expenses.voidExpense(
+                actor,
+                householdId,
+                expenseId,
+                idempotencyKey,
+                ifMatch,
+                request == null ? null : request.reason());
+        return mutationResponse(result);
+    }
+
+    private static ResponseEntity<String> mutationResponse(ExpenseService.CreateResult result) {
+        HttpHeaders headers = new HttpHeaders();
+        if (result.replayed()) {
+            headers.add("Idempotency-Replayed", "true");
+        }
+        return ResponseEntity.status(result.httpStatus())
+                .headers(headers)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(result.responseBody());
+    }
+
     record CreateExpenseRequest(
             LocalDate effectiveDate,
             String amount,
@@ -78,4 +132,15 @@ class ExpenseController {
             UUID categoryId,
             UUID beneficiaryId,
             String note) {}
+
+    record ReplaceExpenseRequest(
+            LocalDate effectiveDate,
+            String amount,
+            UUID accountId,
+            UUID categoryId,
+            UUID beneficiaryId,
+            String note,
+            String changeReason) {}
+
+    record VoidExpenseRequest(String reason) {}
 }

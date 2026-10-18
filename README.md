@@ -27,7 +27,18 @@ exists, and a later ordinary start does not rotate the password:
 
 An admin may list, create, and update household users under
 `/api/v1/households/{householdId}/users`, including temporary-password reset for
-another user. The last active admin cannot be disabled or demoted.
+another user. The last active admin cannot be disabled or demoted. Authenticated
+requests reload the actor so role, status, and security-version changes apply on
+the next request.
+
+Recover an existing active admin without HTTP by supplying a runtime password:
+
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.arguments="\
+--expense.recovery.enabled=true \
+--expense.recovery.admin-email=admin@example.com \
+--expense.recovery.admin-password=$RECOVERY_ADMIN_PASSWORD"
+```
 
 ## Local containers
 

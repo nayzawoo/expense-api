@@ -23,6 +23,11 @@ import org.springframework.security.web.savedrequest.NullRequestCache;
 class SecurityConfig {
 
     @Bean
+    AuthRefreshFilter authRefreshFilter(AppUserRepository users, SecurityContextRepository securityContexts) {
+        return new AuthRefreshFilter(users, securityContexts);
+    }
+
+    @Bean
     Clock clock() {
         return Clock.systemUTC();
     }
@@ -43,7 +48,11 @@ class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, Clock clock, SecurityContextRepository securityContexts)
+    SecurityFilterChain securityFilterChain(
+            HttpSecurity http,
+            Clock clock,
+            SecurityContextRepository securityContexts,
+            AuthRefreshFilter authRefreshFilter)
             throws Exception {
         http.csrf(csrf -> csrf.csrfTokenRepository(new HttpSessionCsrfTokenRepository())
                         .csrfTokenRequestHandler(new XorCsrfTokenRequestAttributeHandler()))
@@ -70,8 +79,8 @@ class SecurityConfig {
                 .addFilterAfter(
                         new AbsoluteSessionExpiryFilter(clock),
                         org.springframework.security.web.context.SecurityContextHolderFilter.class)
-                .addFilterAfter(
-                        new PasswordChangeRequiredFilter(), AbsoluteSessionExpiryFilter.class);
+                .addFilterAfter(authRefreshFilter, AbsoluteSessionExpiryFilter.class)
+                .addFilterAfter(new PasswordChangeRequiredFilter(), AuthRefreshFilter.class);
         return http.build();
     }
 }

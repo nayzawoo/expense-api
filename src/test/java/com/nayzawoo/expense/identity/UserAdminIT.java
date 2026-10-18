@@ -174,14 +174,14 @@ class UserAdminIT {
                 HttpMethod.PATCH,
                 jsonEntity("{\"role\":\"MEMBER\"}", otherAdmin.cookie(), otherAdmin),
                 String.class);
-        assertThat(demoteLast.getStatusCode().value()).isEqualTo(409);
+        assertThat(demoteLast.getStatusCode().value()).isEqualTo(403);
 
         ResponseEntity<String> disableLast = rest.exchange(
                 "/api/v1/households/" + householdId + "/users/" + adminId,
                 HttpMethod.PATCH,
                 jsonEntity("{\"status\":\"DISABLED\"}", otherAdmin.cookie(), otherAdmin),
                 String.class);
-        assertThat(disableLast.getStatusCode().value()).isEqualTo(409);
+        assertThat(disableLast.getStatusCode().value()).isEqualTo(403);
     }
 
     @Test

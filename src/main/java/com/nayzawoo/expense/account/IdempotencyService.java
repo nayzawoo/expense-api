@@ -16,7 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
-class IdempotencyService {
+public class IdempotencyService {
 
     private final JdbcTemplate jdbc;
     private final Clock clock;
@@ -26,7 +26,7 @@ class IdempotencyService {
         this.clock = clock;
     }
 
-    Optional<Replay> begin(
+    public Optional<Replay> begin(
             UUID householdId, UUID actorUserId, String operation, String key, String requestHash) {
         requireKey(key);
         Instant now = Instant.now(clock);
@@ -52,7 +52,7 @@ class IdempotencyService {
         return Optional.of(readRequired(householdId, actorUserId, operation, key, requestHash));
     }
 
-    void complete(
+    public void complete(
             UUID householdId,
             UUID actorUserId,
             String operation,
@@ -84,7 +84,7 @@ class IdempotencyService {
         }
     }
 
-    static String canonical(String... fields) {
+    public static String canonical(String... fields) {
         StringBuilder builder = new StringBuilder();
         for (String field : fields) {
             String value = field == null ? "" : field;
@@ -93,7 +93,7 @@ class IdempotencyService {
         return builder.toString();
     }
 
-    static String hashRequest(String canonical) {
+    public static String hashRequest(String canonical) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hashed = digest.digest(canonical.getBytes(StandardCharsets.UTF_8));
@@ -144,5 +144,5 @@ class IdempotencyService {
         }
     }
 
-    record Replay(int httpStatus, UUID resourceId, long resourceVersion, String responseBody) {}
+    public record Replay(int httpStatus, UUID resourceId, long resourceVersion, String responseBody) {}
 }

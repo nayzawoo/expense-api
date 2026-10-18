@@ -307,6 +307,158 @@ class ExpenseIT {
                 .isEqualTo(403);
     }
 
+    @Test
+    void creatorReplacesAndAdminVoidsWithCompensation() {
+        Session member = login("member@example.com", "correct-password");
+        Session admin = login("admin@example.com", "correct-password");
+        ResponseEntity<String> created = postExpense(
+                member,
+                """
+                {"effectiveDate":"2026-01-12","amount":"250","accountId":"%s","categoryId":"%s","beneficiaryId":"%s","note":"Groceries"}
+                """
+                        .formatted(accountId, categoryId, beneficiaryId),
+                "create-replace-1");
+        assertThat(created.getStatusCode().value()).isEqualTo(201);
+        JsonNode createdBody = json.readTree(created.getBody());
+        String expenseId = createdBody.get("id").asString();
+        long version = createdBody.get("version").asLong();
+
+        ResponseEntity<String> replaced = rest.exchange(
+                "/api/v1/households/" + householdId + "/expenses/" + expenseId,
+                HttpMethod.PUT,
+                jsonEntity(
+                        """
+                        {"effectiveDate":"2026-01-13","amount":"200","accountId":"%s","categoryId":"%s","beneficiaryId":"%s","note":"Adjusted","changeReason":"Price correction"}
+                        """
+                                .formatted(accountId, categoryId, beneficiaryId),
+                        member.cookie(),
+                        member,
+                        "replace-1",
+                        "\"" + version + "\""),
+                String.class);
+        assertThat(replaced.getStatusCode().value()).isEqualTo(200);
+        JsonNode replacedBody = json.readTree(replaced.getBody());
+        assertThat(replacedBody.get("amount").asString()).isEqualTo("200");
+        assertThat(replacedBody.get("effectiveDate").asString()).isEqualTo("2026-01-13");
+        assertThat(replacedBody.get("version").asLong()).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                        """
+                        SELECT COALESCE(SUM(signed_amount), 0)
+                        FROM account_posting
+                        WHERE household_id = ? AND account_id = ?
+                        """,
+                        BigDecimal.class,
+                        householdId,
+                        accountId))
+                .isEqualByComparingTo("800");
+
+        ResponseEntity<String> stale = rest.exchange(
+                "/api/v1/households/" + householdId + "/expenses/" + expenseId + "/void",
+                HttpMethod.POST,
+                jsonEntity(
+                        "{\"reason\":\"stale attempt\"}",
+                        admin.cookie(),
+                        admin,
+                        "void-stale-1",
+                        "\"" + version + "\""),
+                String.class);
+        assertThat(stale.getStatusCode().value()).isEqualTo(412);
+
+        ResponseEntity<String> missing = rest.exchange(
+                "/api/v1/households/" + householdId + "/expenses/" + expenseId + "/void",
+                HttpMethod.POST,
+                jsonEntity("{\"reason\":\"missing match\"}", admin.cookie(), admin, "void-missing-1", null),
+                String.class);
+        assertThat(missing.getStatusCode().value()).isEqualTo(428);
+
+        long currentVersion = replacedBody.get("version").asLong();
+        ResponseEntity<String> voided = rest.exchange(
+                "/api/v1/households/" + householdId + "/expenses/" + expenseId + "/void",
+                HttpMethod.POST,
+                jsonEntity(
+                        "{\"reason\":\"Duplicate purchase\"}",
+                        admin.cookie(),
+                        admin,
+                        "void-1",
+                        "\"" + currentVersion + "\""),
+                String.class);
+        assertThat(voided.getStatusCode().value()).isEqualTo(200);
+        assertThat(json.readTree(voided.getBody()).get("state").asString()).isEqualTo("VOID");
+        assertThat(json.readTree(voided.getBody()).get("capabilities").get("canVoid").asBoolean())
+                .isFalse();
+        assertThat(jdbc.queryForObject(
+                        """
+                        SELECT COALESCE(SUM(signed_amount), 0)
+                        FROM account_posting
+                        WHERE household_id = ? AND account_id = ?
+                        """,
+                        BigDecimal.class,
+                        householdId,
+                        accountId))
+                .isEqualByComparingTo("1000");
+
+        ResponseEntity<String> replay = rest.exchange(
+                "/api/v1/households/" + householdId + "/expenses/" + expenseId + "/void",
+                HttpMethod.POST,
+                jsonEntity(
+                        "{\"reason\":\"Duplicate purchase\"}",
+                        admin.cookie(),
+                        admin,
+                        "void-1",
+                        "\"" + currentVersion + "\""),
+                String.class);
+        assertThat(replay.getStatusCode().value()).isEqualTo(200);
+        assertThat(replay.getHeaders().getFirst("Idempotency-Replayed")).isEqualTo("true");
+
+        ResponseEntity<String> doubleVoid = rest.exchange(
+                "/api/v1/households/" + householdId + "/expenses/" + expenseId + "/void",
+                HttpMethod.POST,
+                jsonEntity(
+                        "{\"reason\":\"again\"}",
+                        admin.cookie(),
+                        admin,
+                        "void-2",
+                        "\"" + json.readTree(voided.getBody()).get("version").asLong() + "\""),
+                String.class);
+        assertThat(doubleVoid.getStatusCode().value()).isEqualTo(409);
+
+        ResponseEntity<String> list = rest.exchange(
+                "/api/v1/households/" + householdId + "/expenses",
+                HttpMethod.GET,
+                jsonEntity(null, member.cookie(), null, null),
+                String.class);
+        assertThat(json.readTree(list.getBody()).size()).isEqualTo(0);
+    }
+
+    @Test
+    void memberCannotReplaceAnotherMembersExpense() {
+        Session member = login("member@example.com", "correct-password");
+        Session admin = login("admin@example.com", "correct-password");
+        ResponseEntity<String> created = postExpense(
+                admin,
+                """
+                {"effectiveDate":"2026-01-12","amount":"50","accountId":"%s","categoryId":"%s","beneficiaryId":"%s"}
+                """
+                        .formatted(accountId, categoryId, beneficiaryId),
+                "admin-create-1");
+        assertThat(created.getStatusCode().value()).isEqualTo(201);
+        JsonNode body = json.readTree(created.getBody());
+        ResponseEntity<String> forbidden = rest.exchange(
+                "/api/v1/households/" + householdId + "/expenses/" + body.get("id").asString(),
+                HttpMethod.PUT,
+                jsonEntity(
+                        """
+                        {"effectiveDate":"2026-01-12","amount":"40","accountId":"%s","categoryId":"%s","beneficiaryId":"%s","changeReason":"nope"}
+                        """
+                                .formatted(accountId, categoryId, beneficiaryId),
+                        member.cookie(),
+                        member,
+                        "member-replace-1",
+                        "\"" + body.get("version").asLong() + "\""),
+                String.class);
+        assertThat(forbidden.getStatusCode().value()).isEqualTo(403);
+    }
+
     private ResponseEntity<String> postExpense(Session session, String body, String key) {
         return rest.exchange(
                 "/api/v1/households/" + householdId + "/expenses",
@@ -431,6 +583,11 @@ class ExpenseIT {
     }
 
     private HttpEntity<String> jsonEntity(String body, String cookie, Session csrf, String idempotencyKey) {
+        return jsonEntity(body, cookie, csrf, idempotencyKey, null);
+    }
+
+    private HttpEntity<String> jsonEntity(
+            String body, String cookie, Session csrf, String idempotencyKey, String ifMatch) {
         HttpHeaders headers = new HttpHeaders();
         if (body != null) {
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -443,6 +600,9 @@ class ExpenseIT {
         }
         if (idempotencyKey != null) {
             headers.add("Idempotency-Key", idempotencyKey);
+        }
+        if (ifMatch != null) {
+            headers.add(HttpHeaders.IF_MATCH, ifMatch);
         }
         return new HttpEntity<>(body, headers);
     }

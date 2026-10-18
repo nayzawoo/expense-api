@@ -2,8 +2,9 @@
 
 A Java 21 / Spring Boot 4.1.1 backend foundation using Spring MVC, JPA validation,
 Flyway and PostgreSQL 18.6. One household, session login, password change,
-household user administration, and profile self-service are implemented.
-Financial entries and the browser application are not.
+household user administration, profile self-service, and admin account creation
+with an immutable opening entry are implemented. Other financial entries and the
+browser application are not.
 
 Session login uses `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me`,
 and `POST /api/v1/auth/logout`. Login, logout, and `PUT /api/v1/password` require the CSRF
@@ -34,6 +35,11 @@ the next request.
 Signed-in users may call `GET /api/v1/profile` and `PUT /api/v1/profile` after the
 forced password change is complete. Changing email requires the current password
 and revokes every session for that user.
+
+An admin may create accounts under `/api/v1/households/{householdId}/accounts` with
+an `Idempotency-Key`. Creation is atomic with the immutable opening revision and
+postings. Active household members may list and read account balances derived from
+postings.
 
 Recover an existing active admin without HTTP by supplying a runtime password:
 

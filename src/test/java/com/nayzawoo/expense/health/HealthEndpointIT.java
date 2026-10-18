@@ -63,7 +63,7 @@ class HealthEndpointIT {
         assertThat(entityManagerFactory.isOpen()).isTrue();
         assertThat(entityManagerFactory.getMetamodel().getEntities())
                 .extracting(entity -> entity.getName())
-                .containsExactlyInAnyOrder("Household", "AppUser");
+                .containsExactlyInAnyOrder("Household", "AppUser", "Account");
         assertThat(environment.getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
         assertThat(environment.getProperty("spring.jpa.open-in-view")).isEqualTo("false");
 
@@ -71,6 +71,10 @@ class HealthEndpointIT {
                 "select count(*) from flyway_schema_history where version = '2' and success",
                 Long.class);
         assertThat(identityMigration).isEqualTo(1L);
+        Long ledgerMigration = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '3' and success",
+                Long.class);
+        assertThat(ledgerMigration).isEqualTo(1L);
 
         Integer identityTables = jdbcTemplate.queryForObject(
                 """
@@ -83,5 +87,17 @@ class HealthEndpointIT {
                 """,
                 Integer.class);
         assertThat(identityTables).isEqualTo(4);
+        Integer ledgerTables = jdbcTemplate.queryForObject(
+                """
+                SELECT count(*)
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_type = 'BASE TABLE'
+                  AND table_name IN (
+                    'account', 'financial_transaction', 'transaction_revision',
+                    'account_posting', 'idempotency_record')
+                """,
+                Integer.class);
+        assertThat(ledgerTables).isEqualTo(5);
     }
 }

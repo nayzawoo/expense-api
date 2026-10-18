@@ -7,7 +7,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
-class ExpenseUser implements UserDetails {
+public class ExpenseUser implements UserDetails {
 
     private final UUID id;
     private final UUID householdId;
@@ -31,31 +31,31 @@ class ExpenseUser implements UserDetails {
         this.securityVersion = user.getSecurityVersion();
     }
 
-    UUID getId() {
+    public UUID getId() {
         return id;
     }
 
-    UUID getHouseholdId() {
+    public UUID getHouseholdId() {
         return householdId;
     }
 
-    String getEmail() {
+    public String getEmail() {
         return email;
     }
 
-    String getDisplayName() {
+    public String getDisplayName() {
         return displayName;
     }
 
-    String getRole() {
+    public String getRole() {
         return role;
     }
 
-    boolean mustChangePassword() {
+    public boolean mustChangePassword() {
         return mustChangePassword;
     }
 
-    long getSecurityVersion() {
+    public long getSecurityVersion() {
         return securityVersion;
     }
 

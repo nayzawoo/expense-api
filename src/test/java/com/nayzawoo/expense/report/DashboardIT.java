@@ -154,7 +154,16 @@ class DashboardIT {
         assertThat(cash.get("balance").asString()).isEqualTo("1040");
         assertThat(body.get("recentActivity").size()).isGreaterThanOrEqualTo(3);
         assertThat(body.get("spendingPace").isArray()).isTrue();
-        assertThat(body.get("spendingPace").size()).isEqualTo(0);
+        assertThat(body.get("spendingPace").size()).isEqualTo(15);
+        assertThat(body.get("spendingPace").get(5).get("day").asInt()).isEqualTo(6);
+        assertThat(body.get("spendingPace").get(5).get("expense").asString()).isEqualTo("50");
+        assertThat(body.get("spendingPace").get(14).get("currentCumulative").asString()).isEqualTo("50");
+        assertThat(body.get("categoryBreakdown").size()).isEqualTo(1);
+        assertThat(body.get("categoryBreakdown").get(0).get("amount").asString()).isEqualTo("50");
+        assertThat(body.get("categoryBreakdown").get(0).get("sharePercent").asString()).isEqualTo("100.0");
+        assertThat(body.get("beneficiarySpending").size()).isEqualTo(1);
+        assertThat(body.get("beneficiarySpending").get(0).get("amount").asString()).isEqualTo("50");
+        assertThat(body.get("categoryChanges").get("increased").isArray()).isTrue();
         assertThat(body.get("overview").get("expenseDifferencePercent").isNull()).isTrue();
 
         ResponseEntity<String> future = rest.exchange(

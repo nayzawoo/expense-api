@@ -1,8 +1,8 @@
 # Expense API
 
 A Java 21 / Spring Boot 4.1.1 backend foundation using Spring MVC, JPA validation,
-Flyway and PostgreSQL 18.6. One household and session login are implemented.
-Financial entries and the browser application are not.
+Flyway and PostgreSQL 18.6. One household, session login, and password change are
+implemented. Financial entries and the browser application are not.
 
 Session login uses `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me`,
 and `POST /api/v1/auth/logout`. Login, logout, and `PUT /api/v1/password` require the CSRF
@@ -10,6 +10,19 @@ header from the bootstrap response. The session cookie is `expense-session`, Htt
 SameSite Lax. Idle timeout is 7 days, and a login ends 30 days after it starts. A user who
 must change their password can call only the CSRF, current-user, password-change, and logout
 routes. A successful password change revokes every session for that user.
+
+Create the first household and admin with a one-shot process start. Supply the admin password
+only at runtime. Do not commit a password. The command refuses to run when a household already
+exists, and a later ordinary start does not rotate the password:
+
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.arguments="\
+--expense.bootstrap.enabled=true \
+--expense.bootstrap.household-name=Home \
+--expense.bootstrap.admin-email=admin@example.com \
+--expense.bootstrap.admin-display-name=Admin \
+--expense.bootstrap.admin-password=$BOOTSTRAP_ADMIN_PASSWORD"
+```
 
 ## Local containers
 

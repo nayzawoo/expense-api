@@ -43,6 +43,22 @@ class AppUser {
 
     protected AppUser() {}
 
+    static AppUser createBootstrapAdmin(
+            UUID id, UUID householdId, String email, String displayName, String passwordHash) {
+        AppUser user = new AppUser();
+        user.id = id;
+        user.householdId = householdId;
+        user.email = email;
+        user.displayName = displayName;
+        user.passwordHash = passwordHash;
+        user.role = "ADMIN";
+        user.status = "ACTIVE";
+        user.mustChangePassword = true;
+        user.passwordChangedAt = null;
+        user.securityVersion = 0;
+        return user;
+    }
+
     void rotatePassword(String passwordHash, Instant now) {
         this.passwordHash = passwordHash;
         this.mustChangePassword = false;

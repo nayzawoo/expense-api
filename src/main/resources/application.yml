@@ -1,6 +1,21 @@
+server:
+  servlet:
+    session:
+      timeout: 7d
+      tracking-modes: cookie
+      cookie:
+        name: expense-session
+        http-only: true
+        same-site: lax
+        max-age: 7d
+
 spring:
   application:
     name: expense-api
+  session:
+    timeout: 7d
+    jdbc:
+      initialize-schema: never
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/expense}
     username: ${DATABASE_USERNAME:expense}

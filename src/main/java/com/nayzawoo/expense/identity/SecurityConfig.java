@@ -1,6 +1,7 @@
 package com.nayzawoo.expense.identity;
 
 import java.time.Clock;
+import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -13,8 +14,12 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.session.ChangeSessionIdAuthenticationStrategy;
+import org.springframework.security.web.authentication.session.CompositeSessionAuthenticationStrategy;
+import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.csrf.CsrfAuthenticationStrategy;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
 import org.springframework.security.web.csrf.XorCsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.savedrequest.NullRequestCache;
@@ -48,16 +53,31 @@ class SecurityConfig {
     }
 
     @Bean
+    CsrfTokenRepository csrfTokenRepository() {
+        return new HttpSessionCsrfTokenRepository();
+    }
+
+    @Bean
+    SessionAuthenticationStrategy sessionAuthenticationStrategy(CsrfTokenRepository csrfTokenRepository) {
+        CsrfAuthenticationStrategy csrfStrategy = new CsrfAuthenticationStrategy(csrfTokenRepository);
+        csrfStrategy.setRequestHandler(new XorCsrfTokenRequestAttributeHandler());
+        return new CompositeSessionAuthenticationStrategy(
+                List.of(new ChangeSessionIdAuthenticationStrategy(), csrfStrategy));
+    }
+
+    @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             Clock clock,
             SecurityContextRepository securityContexts,
+            CsrfTokenRepository csrfTokenRepository,
+            SessionAuthenticationStrategy sessionAuthenticationStrategy,
             AuthRefreshFilter authRefreshFilter)
             throws Exception {
-        http.csrf(csrf -> csrf.csrfTokenRepository(new HttpSessionCsrfTokenRepository())
+        http.csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository)
                         .csrfTokenRequestHandler(new XorCsrfTokenRequestAttributeHandler()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
-                        .sessionAuthenticationStrategy(new ChangeSessionIdAuthenticationStrategy()))
+                        .sessionAuthenticationStrategy(sessionAuthenticationStrategy))
                 .requestCache(cache -> cache.requestCache(new NullRequestCache()))
                 .securityContext(context -> context.securityContextRepository(securityContexts)
                         .requireExplicitSave(true))

@@ -21,7 +21,7 @@ class FlywayMigrationIT {
             postgres.start();
             Flyway flyway = flywayFor(postgres);
 
-            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(4);
+            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(5);
             assertThat(successfulVersionOneCount(postgres)).isEqualTo(1);
 
             assertThat(flyway.migrate().migrationsExecuted).isZero();
@@ -36,7 +36,7 @@ class FlywayMigrationIT {
             postgres.start();
             Flyway flyway = flywayFor(postgres);
 
-            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(4);
+            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(5);
             assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
 
             try (Connection connection = DriverManager.getConnection(

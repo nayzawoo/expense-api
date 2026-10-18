@@ -70,6 +70,7 @@ class RecoveryAuthRefreshIT {
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
         jdbc.update("DELETE FROM spring_session_attributes");
         jdbc.update("DELETE FROM spring_session");
+        jdbc.update("DELETE FROM audit_event");
         jdbc.update("DELETE FROM app_user");
         jdbc.update("DELETE FROM household");
         householdId = UUID.randomUUID();
@@ -193,23 +194,36 @@ class RecoveryAuthRefreshIT {
                 String.class);
         assertThat(result.getStatusCode().value()).isEqualTo(200);
         String cookie = sessionCookie(result);
+        String sessionCookieValue = cookie == null ? csrf.cookie() : cookie.split(";", 2)[0];
+        Session refreshed = csrfFor(sessionCookieValue);
         return new Session(
-                cookie == null ? csrf.cookie() : cookie.split(";", 2)[0],
+                sessionCookieValue,
                 cookie == null ? csrf.setCookie() : cookie,
-                csrf.headerName(),
-                csrf.token(),
+                refreshed.headerName(),
+                refreshed.token(),
                 json.readTree(result.getBody()));
     }
 
     private Session csrf() {
-        ResponseEntity<String> result = rest.getForEntity("/api/v1/auth/csrf", String.class);
+        return csrfFor(null);
+    }
+
+    private Session csrfFor(String cookie) {
+        HttpHeaders headers = new HttpHeaders();
+        if (cookie != null) {
+            headers.add(HttpHeaders.COOKIE, cookie);
+        }
+        ResponseEntity<String> result =
+                rest.exchange("/api/v1/auth/csrf", HttpMethod.GET, new HttpEntity<>(headers), String.class);
         assertThat(result.getStatusCode().value()).isEqualTo(200);
         JsonNode body = json.readTree(result.getBody());
-        String cookie = sessionCookie(result);
-        assertThat(cookie).isNotNull();
+        String responseCookie = sessionCookie(result);
+        String sessionCookieValue =
+                responseCookie == null ? cookie : responseCookie.split(";", 2)[0];
+        assertThat(sessionCookieValue).isNotNull();
         return new Session(
-                cookie.split(";", 2)[0],
-                cookie,
+                sessionCookieValue,
+                responseCookie == null ? cookie : responseCookie,
                 body.get("headerName").asString(),
                 body.get("token").asString(),
                 body);

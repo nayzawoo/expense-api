@@ -79,6 +79,10 @@ class HealthEndpointIT {
                 "select count(*) from flyway_schema_history where version = '4' and success",
                 Long.class);
         assertThat(openingIntegrityMigration).isEqualTo(1L);
+        Long identityAuditMigration = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '5' and success",
+                Long.class);
+        assertThat(identityAuditMigration).isEqualTo(1L);
 
         Integer identityTables = jdbcTemplate.queryForObject(
                 """
@@ -87,10 +91,10 @@ class HealthEndpointIT {
                 WHERE table_schema = 'public'
                   AND table_type = 'BASE TABLE'
                   AND table_name IN (
-                    'household', 'app_user', 'spring_session', 'spring_session_attributes')
+                    'household', 'app_user', 'spring_session', 'spring_session_attributes', 'audit_event')
                 """,
                 Integer.class);
-        assertThat(identityTables).isEqualTo(4);
+        assertThat(identityTables).isEqualTo(5);
         Integer ledgerTables = jdbcTemplate.queryForObject(
                 """
                 SELECT count(*)

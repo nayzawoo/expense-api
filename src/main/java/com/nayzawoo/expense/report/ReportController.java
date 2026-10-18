@@ -4,6 +4,7 @@ import com.nayzawoo.expense.identity.ExpenseUser;
 import com.nayzawoo.expense.report.ReportService.AccountBalanceResponse;
 import com.nayzawoo.expense.report.ReportService.ActivityResponse;
 import com.nayzawoo.expense.report.ReportService.AnalyticsView;
+import com.nayzawoo.expense.report.ReportService.BalanceCoverageResponse;
 import com.nayzawoo.expense.report.ReportService.BeneficiarySpendingResponse;
 import com.nayzawoo.expense.report.ReportService.CategoryBreakdownResponse;
 import com.nayzawoo.expense.report.ReportService.CategoryChangesResponse;
@@ -54,6 +55,7 @@ class ReportController {
             String asOf,
             PeriodResponse period,
             PeriodResponse comparisonPeriod,
+            BalanceCoverageResponse balanceCoverage,
             OverviewView overview,
             List<MonthTrendResponse> monthlyTrend,
             List<CategoryBreakdownResponse> categoryBreakdown,
@@ -67,6 +69,7 @@ class ReportController {
                     view.asOf().toString(),
                     view.period().toResponse(),
                     view.comparisonPeriod().toResponse(),
+                    view.balanceCoverage(),
                     view.overview(),
                     view.monthlyTrend(),
                     view.categoryBreakdown(),
@@ -81,6 +84,7 @@ class ReportController {
             String asOf,
             PeriodResponse period,
             PeriodResponse comparisonPeriod,
+            BalanceCoverageResponse balanceCoverage,
             String totalBalance,
             List<AccountBalanceResponse> accounts,
             OverviewView overview,
@@ -97,6 +101,7 @@ class ReportController {
                     view.asOf().toString(),
                     view.period().toResponse(),
                     view.comparisonPeriod().toResponse(),
+                    view.balanceCoverage(),
                     view.totalBalance(),
                     view.accounts(),
                     view.overview(),

@@ -63,14 +63,14 @@ class CorsIT {
     }
 
     @Test
-    void disallowedOriginDoesNotReceiveAllowOrigin() {
+    void disallowedOriginIsRejectedWithoutAllowOrigin() {
         HttpHeaders headers = new HttpHeaders();
         headers.add(HttpHeaders.ORIGIN, "http://localhost:9999");
 
         ResponseEntity<String> response =
                 rest.exchange("/api/v1/auth/csrf", HttpMethod.GET, new HttpEntity<>(headers), String.class);
 
-        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(response.getStatusCode().value()).isEqualTo(403);
         assertThat(response.getHeaders().getAccessControlAllowOrigin()).isNull();
     }
 }

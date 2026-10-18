@@ -63,7 +63,7 @@ class HealthEndpointIT {
         assertThat(entityManagerFactory.isOpen()).isTrue();
         assertThat(entityManagerFactory.getMetamodel().getEntities())
                 .extracting(entity -> entity.getName())
-                .containsExactlyInAnyOrder("Household", "AppUser", "Account");
+                .containsExactlyInAnyOrder("Household", "AppUser", "Account", "Category", "Beneficiary");
         assertThat(environment.getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
         assertThat(environment.getProperty("spring.jpa.open-in-view")).isEqualTo("false");
 
@@ -83,6 +83,10 @@ class HealthEndpointIT {
                 "select count(*) from flyway_schema_history where version = '5' and success",
                 Long.class);
         assertThat(identityAuditMigration).isEqualTo(1L);
+        Long metadataMigration = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '6' and success",
+                Long.class);
+        assertThat(metadataMigration).isEqualTo(1L);
 
         Integer identityTables = jdbcTemplate.queryForObject(
                 """
@@ -107,5 +111,15 @@ class HealthEndpointIT {
                 """,
                 Integer.class);
         assertThat(ledgerTables).isEqualTo(5);
+        Integer metadataTables = jdbcTemplate.queryForObject(
+                """
+                SELECT count(*)
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_type = 'BASE TABLE'
+                  AND table_name IN ('category', 'beneficiary')
+                """,
+                Integer.class);
+        assertThat(metadataTables).isEqualTo(2);
     }
 }

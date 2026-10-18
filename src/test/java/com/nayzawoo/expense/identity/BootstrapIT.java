@@ -57,6 +57,8 @@ class BootstrapIT {
         jdbc.update("DELETE FROM spring_session_attributes");
         jdbc.update("DELETE FROM spring_session");
         jdbc.update("DELETE FROM audit_event");
+        jdbc.update("DELETE FROM category");
+        jdbc.update("DELETE FROM beneficiary");
         jdbc.update("DELETE FROM app_user");
         jdbc.update("DELETE FROM household");
     }
@@ -102,6 +104,14 @@ class BootstrapIT {
                 .hasMessageContaining("already exists");
         assertThat(jdbc.queryForObject("select count(*) from household", Long.class)).isEqualTo(1L);
         assertThat(jdbc.queryForObject("select count(*) from app_user", Long.class)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                        """
+                        select string_agg(kind || ':' || name, ',' ORDER BY sort_order, name)
+                        from beneficiary where household_id = ?
+                        """,
+                        String.class,
+                        result.householdId()))
+                .isEqualTo("HOUSEHOLD:Household,OTHER:Other");
     }
 
     private Session login(String email, String password) {

@@ -1,5 +1,6 @@
 package com.nayzawoo.expense.identity;
 
+import com.nayzawoo.expense.beneficiary.BeneficiaryService;
 import java.util.UUID;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -11,11 +12,17 @@ class BootstrapService {
     private final HouseholdRepository households;
     private final AppUserRepository users;
     private final PasswordEncoder passwordEncoder;
+    private final BeneficiaryService beneficiaries;
 
-    BootstrapService(HouseholdRepository households, AppUserRepository users, PasswordEncoder passwordEncoder) {
+    BootstrapService(
+            HouseholdRepository households,
+            AppUserRepository users,
+            PasswordEncoder passwordEncoder,
+            BeneficiaryService beneficiaries) {
         this.households = households;
         this.users = users;
         this.passwordEncoder = passwordEncoder;
+        this.beneficiaries = beneficiaries;
     }
 
     @Transactional
@@ -44,6 +51,7 @@ class BootstrapService {
                 email,
                 adminDisplayName.trim(),
                 passwordEncoder.encode(adminPassword)));
+        beneficiaries.seedDefaults(household.getId());
         return new BootstrapResult(household.getId(), admin.getId(), admin.getEmail());
     }
 

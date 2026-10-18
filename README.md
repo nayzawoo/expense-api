@@ -144,6 +144,41 @@ empty volume and make existing data appear lost even when the original still exi
 
 ## Tests and CI
 
+### Fast local feedback
+
+For a source edit, compile without packaging or starting Docker:
+
+```bash
+./mvnw --no-transfer-progress compile
+```
+
+With Java 21 and Docker running, run only the relevant integration class or method:
+
+```bash
+sh scripts/test-focused.sh ProfileIT
+sh scripts/test-focused.sh 'ProfileIT#readsAndUpdatesDisplayName'
+sh scripts/test-focused.sh 'ProfileIT,AuthSessionIT'
+```
+
+The runner compiles current application and test sources, then invokes Failsafe and
+checks its result without packaging a JAR. An unmatched selector fails. It runs only
+the selected integration tests, not unit tests or the complete verification gate.
+Reports remain in `target/failsafe-reports`. Run the full commands below before
+merging; focused tests do not replace them.
+
+Avoid `clean` during ordinary edits: retaining `target` allows Maven to reuse build
+outputs where supported. Use `clean` when diagnosing stale outputs or when a fresh
+build is required. `./mvnw test` runs unit tests only; the PostgreSQL integration
+classes use the `IT` suffix and require Failsafe.
+
+Docker builds require BuildKit (standard with current Compose v2). Rebuild with
+`docker compose up --build -d --wait` after source changes. The build caches the
+Maven repository, including the wrapper distribution, across source changes on the
+same builder. The first build still downloads dependencies; a new or pruned builder
+has a cold cache. BuildKit cache contents are not copied into the runtime image.
+
+### Full verification
+
 With Java 21 and Docker running:
 
 ```bash

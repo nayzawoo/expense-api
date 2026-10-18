@@ -160,6 +160,111 @@ class AuthSessionIT {
     }
 
     @Test
+    void temporaryPasswordChangeClearsFlagAndRevokesSessions() {
+        insertUser("ada@example.com", "correct-password", "MEMBER", "ACTIVE", true);
+        Session first = login("ada@example.com", "correct-password");
+        Session second = login("ada@example.com", "correct-password");
+
+        ResponseEntity<String> changed = rest.exchange(
+                "/api/v1/password",
+                HttpMethod.PUT,
+                jsonEntity(
+                        "{\"currentPassword\":\"correct-password\",\"newPassword\":\"replacement-password\"}",
+                        first.cookie(),
+                        first),
+                String.class);
+        assertThat(changed.getStatusCode().value()).isEqualTo(204);
+
+        ResponseEntity<String> afterFirst = rest.exchange(
+                "/api/v1/auth/me", HttpMethod.GET, jsonEntity(null, first.cookie(), null), String.class);
+        assertThat(afterFirst.getStatusCode().value()).isEqualTo(401);
+        ResponseEntity<String> afterSecond = rest.exchange(
+                "/api/v1/auth/me", HttpMethod.GET, jsonEntity(null, second.cookie(), null), String.class);
+        assertThat(afterSecond.getStatusCode().value()).isEqualTo(401);
+
+        Session renewed = login("ada@example.com", "replacement-password");
+        assertThat(renewed.body().get("mustChangePassword").asBoolean()).isFalse();
+        ResponseEntity<String> household = rest.exchange(
+                "/api/v1/household", HttpMethod.GET, jsonEntity(null, renewed.cookie(), null), String.class);
+        assertThat(household.getStatusCode().value()).isEqualTo(200);
+        assertThat(jdbc.queryForObject(
+                        "select must_change_password from app_user where email = 'ada@example.com'", Boolean.class))
+                .isFalse();
+        assertThat(jdbc.queryForObject(
+                        "select password_changed_at is not null from app_user where email = 'ada@example.com'",
+                        Boolean.class))
+                .isTrue();
+        assertThat(jdbc.queryForObject(
+                        "select security_version from app_user where email = 'ada@example.com'", Long.class))
+                .isEqualTo(1L);
+    }
+
+    @Test
+    void normalPasswordChangeRevokesSessions() {
+        insertUser("ada@example.com", "correct-password", "ADMIN", "ACTIVE", false);
+        jdbc.update(
+                "UPDATE app_user SET password_changed_at = ?, security_version = 3 WHERE email = 'ada@example.com'",
+                java.sql.Timestamp.from(Instant.parse("2026-01-01T00:00:00Z")));
+        Session login = login("ada@example.com", "correct-password");
+
+        ResponseEntity<String> changed = rest.exchange(
+                "/api/v1/password",
+                HttpMethod.PUT,
+                jsonEntity(
+                        "{\"currentPassword\":\"correct-password\",\"newPassword\":\"another-password\"}",
+                        login.cookie(),
+                        login),
+                String.class);
+        assertThat(changed.getStatusCode().value()).isEqualTo(204);
+        assertThat(jdbc.queryForObject(
+                        "select security_version from app_user where email = 'ada@example.com'", Long.class))
+                .isEqualTo(4L);
+        assertThat(jdbc.queryForObject(
+                        """
+                        select password_changed_at = ?
+                        from app_user where email = 'ada@example.com'
+                        """,
+                        Boolean.class,
+                        java.sql.Timestamp.from(Instant.parse("2026-01-01T00:00:00Z"))))
+                .isTrue();
+
+        ResponseEntity<String> after = rest.exchange(
+                "/api/v1/auth/me", HttpMethod.GET, jsonEntity(null, login.cookie(), null), String.class);
+        assertThat(after.getStatusCode().value()).isEqualTo(401);
+        Session renewed = login("ada@example.com", "another-password");
+        assertThat(renewed.body().get("mustChangePassword").asBoolean()).isFalse();
+    }
+
+    @Test
+    void rejectsWrongCurrentPasswordAndWeakNewPassword() {
+        insertUser("ada@example.com", "correct-password", "MEMBER", "ACTIVE", true);
+        Session login = login("ada@example.com", "correct-password");
+
+        ResponseEntity<String> wrong = rest.exchange(
+                "/api/v1/password",
+                HttpMethod.PUT,
+                jsonEntity(
+                        "{\"currentPassword\":\"wrong-password\",\"newPassword\":\"replacement-password\"}",
+                        login.cookie(),
+                        login),
+                String.class);
+        assertThat(wrong.getStatusCode().value()).isEqualTo(401);
+
+        ResponseEntity<String> weak = rest.exchange(
+                "/api/v1/password",
+                HttpMethod.PUT,
+                jsonEntity(
+                        "{\"currentPassword\":\"correct-password\",\"newPassword\":\"short\"}",
+                        login.cookie(),
+                        login),
+                String.class);
+        assertThat(weak.getStatusCode().value()).isEqualTo(400);
+        assertThat(jdbc.queryForObject(
+                        "select must_change_password from app_user where email = 'ada@example.com'", Boolean.class))
+                .isTrue();
+    }
+
+    @Test
     void rejectsASecondHousehold() {
         assertThatThrownBy(() -> jdbc.update(
                         """

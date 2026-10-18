@@ -31,6 +31,9 @@ class PasswordChangeRequiredFilter extends OncePerRequestFilter {
         if ("GET".equals(method) && ("/api/v1/auth/csrf".equals(path) || "/api/v1/auth/me".equals(path))) {
             return true;
         }
+        if ("PUT".equals(method) && "/api/v1/password".equals(path)) {
+            return true;
+        }
         if ("POST".equals(method) && "/api/v1/auth/logout".equals(path)) {
             return true;
         }

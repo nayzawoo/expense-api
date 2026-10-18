@@ -5,10 +5,11 @@ Flyway and PostgreSQL 18.6. One household and session login are implemented.
 Financial entries and the browser application are not.
 
 Session login uses `GET /api/v1/auth/csrf`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me`,
-and `POST /api/v1/auth/logout`. Login and logout require the CSRF header from the bootstrap
-response. The session cookie is `expense-session`, HttpOnly, and SameSite Lax. Idle timeout
-is 7 days, and a login ends 30 days after it starts. A user who must change their password
-can call only the CSRF, current-user, and logout routes.
+and `POST /api/v1/auth/logout`. Login, logout, and `PUT /api/v1/password` require the CSRF
+header from the bootstrap response. The session cookie is `expense-session`, HttpOnly, and
+SameSite Lax. Idle timeout is 7 days, and a login ends 30 days after it starts. A user who
+must change their password can call only the CSRF, current-user, password-change, and logout
+routes. A successful password change revokes every session for that user.
 
 ## Local containers
 

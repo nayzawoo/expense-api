@@ -28,9 +28,11 @@ exists, and a later ordinary start does not rotate the password:
 
 An admin may list, create, and update household users under
 `/api/v1/households/{householdId}/users`, including temporary-password reset for
-another user. The last active admin cannot be disabled or demoted. Authenticated
-requests reload the actor so role, status, and security-version changes apply on
-the next request.
+another user. Role and status changes take an exclusive household lock and recheck
+the actor before mutating. Disabling a user increments `security_version` and
+revokes that user's sessions. The last active admin cannot be disabled or demoted.
+Authenticated requests reload the actor so role, status, and security-version
+changes apply on the next request.
 
 Signed-in users may call `GET /api/v1/profile` and `PUT /api/v1/profile` after the
 forced password change is complete. Changing email requires the current password

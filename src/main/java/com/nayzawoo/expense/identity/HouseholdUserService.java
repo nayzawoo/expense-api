@@ -15,16 +15,19 @@ class HouseholdUserService {
     private final AppUserRepository users;
     private final PasswordEncoder passwordEncoder;
     private final SessionRevocationService sessionRevocation;
+    private final IdentityLocks locks;
 
     HouseholdUserService(
             HouseholdRepository households,
             AppUserRepository users,
             PasswordEncoder passwordEncoder,
-            SessionRevocationService sessionRevocation) {
+            SessionRevocationService sessionRevocation,
+            IdentityLocks locks) {
         this.households = households;
         this.users = users;
         this.passwordEncoder = passwordEncoder;
         this.sessionRevocation = sessionRevocation;
+        this.locks = locks;
     }
 
     List<AppUser> listUsers(ExpenseUser actor, UUID householdId) {
@@ -46,7 +49,8 @@ class HouseholdUserService {
             String email,
             String temporaryPassword,
             String role) {
-        requireAdminInHousehold(actor, householdId);
+        locks.lockHouseholdExclusive(householdId);
+        locks.requireActiveAdmin(actor, householdId);
         if (displayName == null
                 || displayName.isBlank()
                 || email == null
@@ -79,7 +83,14 @@ class HouseholdUserService {
             String role,
             String status,
             String email) {
-        requireAdminInHousehold(actor, householdId);
+        boolean mutatesAuthority = role != null || status != null;
+        if (mutatesAuthority) {
+            locks.lockHouseholdExclusive(householdId);
+        } else {
+            locks.lockHouseholdShare(householdId);
+        }
+        locks.requireActiveAdmin(actor, householdId);
+        locks.lockUsersInOrder(householdId, actor.getId(), userId);
         AppUser target = users.findByIdAndHouseholdId(userId, householdId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         boolean self = actor.getId().equals(target.getId());
@@ -98,6 +109,10 @@ class HouseholdUserService {
         if (role != null || status != null) {
             guardLastActiveAdmin(householdId, target, nextRole, nextStatus);
         }
+        boolean disabling = status != null
+                && "DISABLED".equals(status)
+                && !"DISABLED".equals(target.getStatus());
+        String previousEmail = target.getEmail();
         if (role != null) {
             target.updateRole(role);
         }
@@ -110,6 +125,7 @@ class HouseholdUserService {
             }
             target.updateDisplayName(displayName.trim());
         }
+        boolean emailChanged = false;
         if (email != null) {
             if (self) {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN);
@@ -121,20 +137,23 @@ class HouseholdUserService {
             if (!normalizedEmail.equals(target.getEmail()) && users.existsByEmail(normalizedEmail)) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT);
             }
-            String previousEmail = target.getEmail();
             if (!normalizedEmail.equals(previousEmail)) {
                 target.changeEmail(normalizedEmail);
-                users.save(target);
-                sessionRevocation.revokeAllForEmail(previousEmail);
-                return target;
+                emailChanged = true;
             }
         }
-        return users.save(target);
+        users.save(target);
+        if (disabling || emailChanged) {
+            sessionRevocation.revokeAllForEmail(previousEmail);
+        }
+        return target;
     }
 
     @Transactional
     void assignTemporaryPassword(ExpenseUser actor, UUID householdId, UUID userId, String temporaryPassword) {
-        requireAdminInHousehold(actor, householdId);
+        locks.lockHouseholdExclusive(householdId);
+        locks.requireActiveAdmin(actor, householdId);
+        locks.lockUsersInOrder(householdId, actor.getId(), userId);
         if (temporaryPassword == null
                 || temporaryPassword.isBlank()
                 || temporaryPassword.length() < PasswordChangeService.MINIMUM_PASSWORD_LENGTH) {

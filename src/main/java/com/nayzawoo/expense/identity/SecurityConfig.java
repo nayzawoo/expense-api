@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -23,6 +24,9 @@ import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
 import org.springframework.security.web.csrf.XorCsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.savedrequest.NullRequestCache;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 class SecurityConfig {
@@ -66,6 +70,29 @@ class SecurityConfig {
     }
 
     @Bean
+    CorsConfigurationSource corsConfigurationSource(CorsProperties corsProperties) {
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        if (corsProperties.allowedOrigins().isEmpty()) {
+            return source;
+        }
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(corsProperties.allowedOrigins());
+        configuration.setAllowCredentials(true);
+        configuration.setAllowedMethods(List.of("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of(
+                "Accept",
+                "Content-Type",
+                "X-CSRF-TOKEN",
+                "Idempotency-Key",
+                "If-Match",
+                "X-Requested-With"));
+        configuration.setExposedHeaders(List.of("Location", "Idempotency-Replayed", "ETag"));
+        configuration.setMaxAge(3600L);
+        source.registerCorsConfiguration("/api/**", configuration);
+        return source;
+    }
+
+    @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             Clock clock,
@@ -74,7 +101,8 @@ class SecurityConfig {
             SessionAuthenticationStrategy sessionAuthenticationStrategy,
             AuthRefreshFilter authRefreshFilter)
             throws Exception {
-        http.csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository)
+        http.cors(Customizer.withDefaults())
+                .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository)
                         .csrfTokenRequestHandler(new XorCsrfTokenRequestAttributeHandler()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                         .sessionAuthenticationStrategy(sessionAuthenticationStrategy))

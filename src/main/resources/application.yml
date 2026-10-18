@@ -14,6 +14,12 @@ expense:
     enabled: false
   recovery:
     enabled: false
+  cors:
+    # Local browser clients (for example Angular on port 4200). Override to empty
+    # in non-local deployments unless credentialed cross-origin access is intended.
+    allowed-origins:
+      - http://localhost:4200
+      - http://127.0.0.1:4200
 
 spring:
   application:

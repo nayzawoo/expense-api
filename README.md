@@ -99,14 +99,17 @@ Active members may call
 `GET /api/v1/households/{householdId}/reports/dashboard`. The snapshot returns
 period totals (`expense`/`income`/`net`), account balances, recent
 expense/income/transfer activity, spending pace, category breakdown/changes,
-and beneficiary spending. Transfers and adjustments do not inflate income or
-expense.
+beneficiary spending, `balanceCoverage`, and per-period `coverage` metadata.
+`elapsedDayAverage` is present when the current period is fully covered;
+comparison difference/percent/direction are null when either period has an
+opening gap. Transfers and adjustments do not inflate income or expense.
 
 Active members may call
 `GET /api/v1/households/{householdId}/reports/analytics` for overview totals,
-six-month expense trend (partial current month; simple opening-based coverage),
-and category breakdown/changes. Insight text and richer coverage objects remain
-deferred. Entry-options and filtered list summaries are not included yet.
+six-month expense trend (partial current month), category breakdown/changes,
+and the same coverage / elapsed-day average rules as the dashboard. Insight
+text remains deferred. Entry-options and filtered list summaries are not
+included yet.
 
 Recover an existing active admin without HTTP by supplying a runtime password:
 

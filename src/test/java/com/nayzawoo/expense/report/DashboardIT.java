@@ -142,9 +142,21 @@ class DashboardIT {
         assertThat(body.get("asOf").asString()).isEqualTo("2026-01-15");
         assertThat(body.get("period").get("from").asString()).isEqualTo("2026-01-01");
         assertThat(body.get("period").get("to").asString()).isEqualTo("2026-01-15");
+        assertThat(body.get("period").get("coverage").get("complete").asBoolean()).isTrue();
+        assertThat(body.get("period").get("coverage").get("reason").isNull()).isTrue();
+        assertThat(body.get("comparisonPeriod").get("coverage").get("complete").asBoolean()).isFalse();
+        assertThat(body.get("comparisonPeriod").get("coverage").get("reason").asString())
+                .isEqualTo("ACCOUNT_OPENING_GAP");
+        assertThat(body.get("balanceCoverage").get("from").asString()).isEqualTo("2026-01-01");
+        assertThat(body.get("balanceCoverage").get("complete").asBoolean()).isTrue();
+        assertThat(body.get("balanceCoverage").get("omittedAccountIds").size()).isEqualTo(0);
         assertThat(body.get("overview").get("income").asString()).isEqualTo("200");
         assertThat(body.get("overview").get("expense").asString()).isEqualTo("50");
         assertThat(body.get("overview").get("net").asString()).isEqualTo("150");
+        assertThat(body.get("overview").get("elapsedDayAverage").asString()).isEqualTo("3");
+        assertThat(body.get("overview").get("expenseDifference").isNull()).isTrue();
+        assertThat(body.get("overview").get("expenseDifferencePercent").isNull()).isTrue();
+        assertThat(body.get("overview").get("direction").isNull()).isTrue();
         assertThat(body.get("totalBalance").asString()).isEqualTo("1140");
         JsonNode accounts = body.get("accounts");
         assertThat(accounts.size()).isEqualTo(2);
@@ -164,7 +176,6 @@ class DashboardIT {
         assertThat(body.get("beneficiarySpending").size()).isEqualTo(1);
         assertThat(body.get("beneficiarySpending").get(0).get("amount").asString()).isEqualTo("50");
         assertThat(body.get("categoryChanges").get("increased").isArray()).isTrue();
-        assertThat(body.get("overview").get("expenseDifferencePercent").isNull()).isTrue();
 
         ResponseEntity<String> future = rest.exchange(
                 "/api/v1/households/" + householdId + "/reports/dashboard?asOf=2026-01-16",
@@ -194,6 +205,27 @@ class DashboardIT {
         JsonNode overview = json.readTree(result.getBody()).get("overview");
         assertThat(overview.get("expense").asString()).isEqualTo("50");
         assertThat(overview.get("income").asString()).isEqualTo("200");
+    }
+
+    @Test
+    void laterOpeningMakesPeriodCoverageIncompleteAndNullsElapsedAverage() {
+        UUID lateAccount = UUID.randomUUID();
+        insertAccount(lateAccount, "Late", "2026-01-05", "0");
+        Session member = login("member@example.com", "correct-password");
+        ResponseEntity<String> result = rest.exchange(
+                "/api/v1/households/" + householdId + "/reports/dashboard?asOf=2026-01-15",
+                HttpMethod.GET,
+                jsonEntity(null, member.cookie(), null),
+                String.class);
+        assertThat(result.getStatusCode().value()).isEqualTo(200);
+        JsonNode body = json.readTree(result.getBody());
+        assertThat(body.get("period").get("coverage").get("complete").asBoolean()).isFalse();
+        assertThat(body.get("period").get("coverage").get("reason").asString())
+                .isEqualTo("ACCOUNT_OPENING_GAP");
+        assertThat(body.get("balanceCoverage").get("complete").asBoolean()).isTrue();
+        assertThat(body.get("overview").get("elapsedDayAverage").isNull()).isTrue();
+        assertThat(body.get("overview").get("expenseDifference").isNull()).isTrue();
+        assertThat(body.get("overview").get("direction").isNull()).isTrue();
     }
 
     private UUID insertExpense(UUID accountId, String amount, String effectiveDate) {

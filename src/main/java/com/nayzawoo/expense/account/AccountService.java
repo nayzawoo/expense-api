@@ -79,6 +79,144 @@ class AccountService {
         return toView(account, openings.get(account.getId()), balances.get(account.getId()), asOf);
     }
 
+    LedgerView ledger(
+            ExpenseUser actor,
+            UUID householdId,
+            UUID accountId,
+            LocalDate from,
+            LocalDate to,
+            Integer page,
+            Integer size) {
+        LockedHouseholdActor locked = financialAccess.requireHouseholdMember(actor, householdId);
+        Account account = accounts
+                .findByIdAndHouseholdId(accountId, locked.householdId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        LocalDate today = householdToday(locked.timezone());
+        LocalDate resolvedFrom = from == null ? account.getOpenedOn() : from;
+        LocalDate resolvedTo = to == null ? today : to;
+        int resolvedPage = page == null ? 0 : page;
+        int resolvedSize = size == null ? 30 : size;
+        if (resolvedPage < 0 || resolvedSize < 1 || resolvedSize > 100) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        if (resolvedFrom.isAfter(resolvedTo)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        if (resolvedFrom.isBefore(account.getOpenedOn())) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "DATE_BEFORE_OPENING");
+        }
+        if (resolvedTo.isAfter(today)) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "FUTURE_DATE");
+        }
+        MapSqlParameterSource rangeParams = new MapSqlParameterSource()
+                .addValue("householdId", locked.householdId())
+                .addValue("accountId", account.getId())
+                .addValue("from", Date.valueOf(resolvedFrom))
+                .addValue("to", Date.valueOf(resolvedTo));
+        BigDecimal openingBalance = jdbc.query(
+                """
+                SELECT COALESCE(SUM(signed_amount), 0)
+                FROM account_posting
+                WHERE household_id = :householdId
+                  AND account_id = :accountId
+                  AND effective_date < :from
+                """,
+                rangeParams,
+                rs -> rs.next() ? rs.getBigDecimal(1) : BigDecimal.ZERO);
+        BigDecimal closingBalance = jdbc.query(
+                """
+                SELECT COALESCE(SUM(signed_amount), 0)
+                FROM account_posting
+                WHERE household_id = :householdId
+                  AND account_id = :accountId
+                  AND effective_date <= :to
+                """,
+                rangeParams,
+                rs -> rs.next() ? rs.getBigDecimal(1) : BigDecimal.ZERO);
+        Long totalElements = jdbc.query(
+                """
+                SELECT count(*)
+                FROM account_posting
+                WHERE household_id = :householdId
+                  AND account_id = :accountId
+                  AND effective_date >= :from
+                  AND effective_date <= :to
+                """,
+                rangeParams,
+                rs -> rs.next() ? rs.getLong(1) : 0L);
+        long total = totalElements == null ? 0L : totalElements;
+        int totalPages = resolvedSize == 0 ? 0 : (int) ((total + resolvedSize - 1) / resolvedSize);
+        MapSqlParameterSource pageParams = new MapSqlParameterSource()
+                .addValue("householdId", locked.householdId())
+                .addValue("accountId", account.getId())
+                .addValue("from", Date.valueOf(resolvedFrom))
+                .addValue("to", Date.valueOf(resolvedTo))
+                .addValue("limit", resolvedSize)
+                .addValue("offset", resolvedPage * resolvedSize);
+        List<LedgerEntryView> items = jdbc.query(
+                """
+                WITH ranked AS (
+                    SELECT p.id AS posting_id,
+                           p.transaction_id,
+                           t.kind,
+                           p.role,
+                           p.signed_amount,
+                           p.effective_date,
+                           p.recorded_at,
+                           p.revision_no,
+                           r.recorded_by_user_id,
+                           r.actor_display_name_snapshot,
+                           SUM(p.signed_amount) OVER (
+                               ORDER BY p.effective_date ASC, p.recorded_at ASC, p.id ASC
+                               ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                           ) AS running_balance
+                    FROM account_posting p
+                    JOIN financial_transaction t
+                      ON t.household_id = p.household_id
+                     AND t.id = p.transaction_id
+                    JOIN transaction_revision r
+                      ON r.household_id = p.household_id
+                     AND r.transaction_id = p.transaction_id
+                     AND r.revision_no = p.revision_no
+                    WHERE p.household_id = :householdId
+                      AND p.account_id = :accountId
+                      AND p.effective_date <= :to
+                )
+                SELECT posting_id, transaction_id, kind, role, signed_amount, effective_date, recorded_at,
+                       revision_no, recorded_by_user_id, actor_display_name_snapshot, running_balance
+                FROM ranked
+                WHERE effective_date >= :from
+                ORDER BY effective_date ASC, recorded_at ASC, posting_id ASC
+                LIMIT :limit OFFSET :offset
+                """,
+                pageParams,
+                (rs, rowNum) -> new LedgerEntryView(
+                        rs.getObject("posting_id", UUID.class),
+                        rs.getObject("transaction_id", UUID.class),
+                        rs.getString("kind"),
+                        rs.getString("role"),
+                        Money.format(rs.getBigDecimal("signed_amount")),
+                        rs.getDate("effective_date").toLocalDate(),
+                        rs.getTimestamp("recorded_at").toInstant(),
+                        rs.getInt("revision_no"),
+                        new ActorSummary(
+                                rs.getObject("recorded_by_user_id", UUID.class),
+                                rs.getString("actor_display_name_snapshot")),
+                        Money.format(rs.getBigDecimal("running_balance"))));
+        return new LedgerView(
+                account.getId(),
+                account.getCurrencyCode(),
+                resolvedFrom,
+                resolvedTo,
+                Money.format(openingBalance == null ? BigDecimal.ZERO : openingBalance),
+                Money.format(closingBalance == null ? BigDecimal.ZERO : closingBalance),
+                resolvedPage,
+                resolvedSize,
+                total,
+                totalPages,
+                items);
+    }
+
     @Transactional
     CreateResult create(
             ExpenseUser actor,
@@ -283,4 +421,31 @@ class AccountService {
             String currency) {}
 
     record CreateResult(boolean replayed, int httpStatus, UUID resourceId, String responseBody) {}
+
+    record ActorSummary(UUID userId, String displayName) {}
+
+    record LedgerEntryView(
+            UUID postingId,
+            UUID transactionId,
+            String kind,
+            String role,
+            String signedAmount,
+            LocalDate effectiveDate,
+            Instant recordedAt,
+            int revisionNo,
+            ActorSummary actor,
+            String runningBalance) {}
+
+    record LedgerView(
+            UUID accountId,
+            String currency,
+            LocalDate from,
+            LocalDate to,
+            String openingBalance,
+            String closingBalance,
+            int page,
+            int size,
+            long totalElements,
+            int totalPages,
+            List<LedgerEntryView> items) {}
 }

@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -38,6 +39,18 @@ class AccountController {
             @PathVariable UUID householdId,
             @PathVariable UUID accountId) {
         return AccountResponse.from(accounts.get(actor, householdId, accountId));
+    }
+
+    @GetMapping("/{accountId}/ledger")
+    LedgerResponse ledger(
+            @AuthenticationPrincipal ExpenseUser actor,
+            @PathVariable UUID householdId,
+            @PathVariable UUID accountId,
+            @RequestParam(required = false) LocalDate from,
+            @RequestParam(required = false) LocalDate to,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return LedgerResponse.from(accounts.ledger(actor, householdId, accountId, from, to, page, size));
     }
 
     @PostMapping
@@ -72,6 +85,62 @@ class AccountController {
 
     record CreateAccountRequest(
             String name, String type, String ownerLabel, LocalDate openedOn, String openingAmount, Integer sortOrder) {}
+
+    record LedgerResponse(
+            String accountId,
+            String currency,
+            String from,
+            String to,
+            String openingBalance,
+            String closingBalance,
+            int page,
+            int size,
+            long totalElements,
+            int totalPages,
+            List<LedgerEntryResponse> items) {
+
+        static LedgerResponse from(AccountService.LedgerView view) {
+            return new LedgerResponse(
+                    view.accountId().toString(),
+                    view.currency(),
+                    view.from().toString(),
+                    view.to().toString(),
+                    view.openingBalance(),
+                    view.closingBalance(),
+                    view.page(),
+                    view.size(),
+                    view.totalElements(),
+                    view.totalPages(),
+                    view.items().stream()
+                            .map(entry -> new LedgerEntryResponse(
+                                    entry.postingId().toString(),
+                                    entry.transactionId().toString(),
+                                    entry.kind(),
+                                    entry.role(),
+                                    entry.signedAmount(),
+                                    entry.effectiveDate().toString(),
+                                    entry.recordedAt().toString(),
+                                    entry.revisionNo(),
+                                    new ActorResponse(
+                                            entry.actor().userId().toString(), entry.actor().displayName()),
+                                    entry.runningBalance()))
+                            .toList());
+        }
+    }
+
+    record LedgerEntryResponse(
+            String postingId,
+            String transactionId,
+            String kind,
+            String role,
+            String signedAmount,
+            String effectiveDate,
+            String recordedAt,
+            int revisionNo,
+            ActorResponse actor,
+            String runningBalance) {}
+
+    record ActorResponse(String userId, String displayName) {}
 
     record AccountResponse(
             String id,

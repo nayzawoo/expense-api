@@ -96,6 +96,12 @@ class AppUser {
         this.securityVersion += 1;
     }
 
+    void recoverAccess(String passwordHash) {
+        this.passwordHash = passwordHash;
+        this.mustChangePassword = true;
+        this.securityVersion += 1;
+    }
+
     Instant getPasswordChangedAt() {
         return passwordChangedAt;
     }

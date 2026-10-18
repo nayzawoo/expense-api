@@ -196,13 +196,123 @@ class AnalyticsIT {
         assertThat(body.get("overview").get("elapsedDayAverage").isNull()).isTrue();
         assertThat(body.get("overview").get("expenseDifference").isNull()).isTrue();
         assertThat(body.get("overview").get("direction").isNull()).isTrue();
+        assertThat(body.get("insight").isNull()).isTrue();
+    }
+
+    @Test
+    void insightReportsIncreaseWithContributorsWhenComparisonCovered() {
+        seedCoveredComparisonHousehold();
+        UUID schoolId = UUID.randomUUID();
+        Instant meta = Instant.parse("2026-01-15T00:00:00Z");
+        jdbc.update(
+                """
+                INSERT INTO category (
+                    id, household_id, name, color, icon_key, status, sort_order, version, created_at, updated_at)
+                VALUES (?, ?, 'School', '#112233', 'school', 'ACTIVE', 2, 0, ?, ?)
+                """,
+                schoolId,
+                householdId,
+                java.sql.Timestamp.from(meta),
+                java.sql.Timestamp.from(meta));
+        insertExpense(accountA, "100", "2025-12-05", categoryId);
+        insertExpense(accountA, "100", "2025-12-05", schoolId);
+        insertExpense(accountA, "280", "2026-01-05", categoryId);
+        insertExpense(accountA, "220", "2026-01-05", schoolId);
+        Session member = login("member@example.com", "correct-password");
+        ResponseEntity<String> result = rest.exchange(
+                "/api/v1/households/" + householdId + "/reports/analytics?asOf=2026-01-15",
+                HttpMethod.GET,
+                jsonEntity(null, member.cookie(), null),
+                String.class);
+        assertThat(result.getStatusCode().value()).isEqualTo(200);
+        JsonNode insight = json.readTree(result.getBody()).get("insight");
+        assertThat(insight.get("kind").asString()).isEqualTo("UP");
+        assertThat(insight.get("metric").get("expenseDifferenceAbs").asString()).isEqualTo("300");
+        assertThat(insight.get("contributors").size()).isEqualTo(2);
+        assertThat(insight.get("contributors").get(0).get("name").asString()).isEqualTo("Food");
+        assertThat(insight.get("contributors").get(1).get("name").asString()).isEqualTo("School");
+    }
+
+    @Test
+    void insightReportsFlatWhenNearlyUnchanged() {
+        seedCoveredComparisonHousehold();
+        insertExpense(accountA, "100", "2025-12-05", categoryId);
+        insertExpense(accountA, "100", "2026-01-05", categoryId);
+        Session member = login("member@example.com", "correct-password");
+        ResponseEntity<String> result = rest.exchange(
+                "/api/v1/households/" + householdId + "/reports/analytics?asOf=2026-01-15",
+                HttpMethod.GET,
+                jsonEntity(null, member.cookie(), null),
+                String.class);
+        JsonNode insight = json.readTree(result.getBody()).get("insight");
+        assertThat(insight.get("kind").asString()).isEqualTo("FLAT");
+        assertThat(insight.get("metric").isNull()).isTrue();
+        assertThat(insight.get("contributors").size()).isEqualTo(0);
+    }
+
+    private void seedCoveredComparisonHousehold() {
+        jdbc.update(
+                """
+                TRUNCATE account_posting, transaction_revision, financial_transaction, account,
+                         category, beneficiary, idempotency_record, audit_event,
+                         spring_session_attributes, spring_session, app_user, household
+                RESTART IDENTITY CASCADE
+                """);
+        householdId = UUID.randomUUID();
+        adminId = UUID.randomUUID();
+        memberId = UUID.randomUUID();
+        accountA = UUID.randomUUID();
+        accountB = UUID.randomUUID();
+        categoryId = UUID.randomUUID();
+        beneficiaryId = UUID.randomUUID();
+        jdbc.update(
+                """
+                INSERT INTO household (id, name, currency, currency_scale, timezone, singleton)
+                VALUES (?, 'Home', 'MMK', 0, 'Asia/Yangon', true)
+                """,
+                householdId);
+        insertUser(adminId, "admin@example.com", "correct-password", "ADMIN", false);
+        insertUser(memberId, "member@example.com", "correct-password", "MEMBER", false);
+        jdbc.update(
+                "UPDATE app_user SET password_changed_at = ? WHERE id IN (?, ?)",
+                java.sql.Timestamp.from(Instant.parse("2025-12-01T00:00:00Z")),
+                adminId,
+                memberId);
+        Instant meta = Instant.parse("2025-12-01T00:00:00Z");
+        jdbc.update(
+                """
+                INSERT INTO category (
+                    id, household_id, name, color, icon_key, status, sort_order, version, created_at, updated_at)
+                VALUES (?, ?, 'Food', '#AABBCC', 'food', 'ACTIVE', 1, 0, ?, ?)
+                """,
+                categoryId,
+                householdId,
+                java.sql.Timestamp.from(meta),
+                java.sql.Timestamp.from(meta));
+        jdbc.update(
+                """
+                INSERT INTO beneficiary (
+                    id, household_id, name, kind, status, sort_order, version, created_at, updated_at)
+                VALUES (?, ?, 'Ada', 'PERSON', 'ACTIVE', 1, 0, ?, ?)
+                """,
+                beneficiaryId,
+                householdId,
+                java.sql.Timestamp.from(meta),
+                java.sql.Timestamp.from(meta));
+        insertAccount(accountA, "Cash", "2025-12-01", "1000");
+        insertAccount(accountB, "Bank", "2025-12-01", "0");
     }
 
     private void insertExpense(UUID accountId, String amount, String effectiveDate) {
+        insertExpense(accountId, amount, effectiveDate, categoryId);
+    }
+
+    private void insertExpense(UUID accountId, String amount, String effectiveDate, UUID expenseCategoryId) {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             Instant recordedAt = Instant.parse(effectiveDate + "T12:00:00Z");
             UUID tx = UUID.randomUUID();
             BigDecimal value = new BigDecimal(amount);
+            String categoryName = expenseCategoryId.equals(categoryId) ? "Food" : "School";
             jdbc.update(
                     """
                     INSERT INTO financial_transaction (
@@ -223,17 +333,18 @@ class AnalyticsIT {
                         recorded_by_user_id, recorded_at, account_name_snapshot, actor_display_name_snapshot,
                         category_name_snapshot, beneficiary_name_snapshot)
                     VALUES (?, ?, 1, 'CREATE', 'POSTED', NULL, ?, ?, 'MMK', ?, NULL, NULL, ?, ?, NULL, NULL,
-                            ?, ?, 'Cash', 'Member', 'Food', 'Ada')
+                            ?, ?, 'Cash', 'Member', ?, 'Ada')
                     """,
                     householdId,
                     tx,
                     java.sql.Date.valueOf(effectiveDate),
                     value,
                     accountId,
-                    categoryId,
+                    expenseCategoryId,
                     beneficiaryId,
                     memberId,
-                    java.sql.Timestamp.from(recordedAt));
+                    java.sql.Timestamp.from(recordedAt),
+                    categoryName);
             jdbc.update(
                     """
                     INSERT INTO account_posting (

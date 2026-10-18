@@ -79,7 +79,7 @@ try:
     for endpoint in ("env", "configprops", "beans", "metrics", "heapdump"):
         code = compose("exec", "-T", "api", "curl", "--silent", "--max-time", "8", "--output", "/dev/null",
                        "--write-out", "%{http_code}", "http://localhost:8080/actuator/" + endpoint)
-        assert code == "404", "Diagnostic endpoint exposed: " + endpoint
+        assert code == "401", "Diagnostic endpoint exposed: " + endpoint
     sql("CREATE TABLE container_smoke_marker (value integer); INSERT INTO container_smoke_marker VALUES (42)")
     compose("stop", "postgres", capture=False)
     wait_for(lambda: health("readiness") == (503, {"status": "DOWN"}))

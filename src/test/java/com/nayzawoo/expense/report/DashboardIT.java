@@ -209,10 +209,8 @@ class DashboardIT {
 
     @Test
     void laterOpeningMakesPeriodCoverageIncompleteAndNullsElapsedAverage() {
-        jdbc.update(
-                "UPDATE account SET opened_on = ? WHERE id = ?",
-                java.sql.Date.valueOf("2026-01-05"),
-                accountB);
+        UUID lateAccount = UUID.randomUUID();
+        insertAccount(lateAccount, "Late", "2026-01-05", "0");
         Session member = login("member@example.com", "correct-password");
         ResponseEntity<String> result = rest.exchange(
                 "/api/v1/households/" + householdId + "/reports/dashboard?asOf=2026-01-15",

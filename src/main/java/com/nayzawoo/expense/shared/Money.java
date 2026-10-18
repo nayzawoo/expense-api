@@ -18,6 +18,14 @@ public final class Money {
         return value;
     }
 
+    public static BigDecimal parsePositivePrincipal(String raw) {
+        BigDecimal value = parseCanonicalInteger(raw);
+        if (value.compareTo(BigDecimal.ZERO) <= 0 || value.compareTo(MAX_ABS) > 0) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "MONEY_OUT_OF_RANGE");
+        }
+        return value;
+    }
+
     public static String format(BigDecimal value) {
         if (value == null) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR);

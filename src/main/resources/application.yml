@@ -12,6 +12,8 @@ server:
 expense:
   bootstrap:
     enabled: false
+  recovery:
+    enabled: false
 
 spring:
   application:

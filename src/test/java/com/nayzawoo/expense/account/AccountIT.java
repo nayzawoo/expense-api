@@ -217,6 +217,99 @@ class AccountIT {
     }
 
     @Test
+    void updatesAccountMetadataWithoutChangingOpening() {
+        Session admin = login("admin@example.com", "correct-password");
+        Session member = login("member@example.com", "correct-password");
+
+        ResponseEntity<String> created = rest.exchange(
+                "/api/v1/households/" + householdId + "/accounts",
+                HttpMethod.POST,
+                jsonEntity(
+                        """
+                        {"name":"Cash","type":"CASH","ownerLabel":"Ada","openedOn":"2026-01-10","openingAmount":"1000","sortOrder":1}
+                        """,
+                        admin.cookie(),
+                        admin,
+                        "update-cash-1"),
+                String.class);
+        assertThat(created.getStatusCode().value()).isEqualTo(201);
+        JsonNode createdBody = json.readTree(created.getBody());
+        String accountId = createdBody.get("id").asString();
+        assertThat(createdBody.get("version").asLong()).isEqualTo(0L);
+        assertThat(createdBody.get("openingAmount").asString()).isEqualTo("1000");
+
+        ResponseEntity<String> updated = rest.exchange(
+                "/api/v1/households/" + householdId + "/accounts/" + accountId,
+                HttpMethod.PUT,
+                jsonEntity(
+                        """
+                        {"name":"Pocket cash","type":"WALLET","ownerLabel":"Ben","sortOrder":5}
+                        """,
+                        admin.cookie(),
+                        admin,
+                        null),
+                String.class);
+        assertThat(updated.getStatusCode().value()).isEqualTo(200);
+        JsonNode updatedBody = json.readTree(updated.getBody());
+        assertThat(updatedBody.get("name").asString()).isEqualTo("Pocket cash");
+        assertThat(updatedBody.get("type").asString()).isEqualTo("WALLET");
+        assertThat(updatedBody.get("ownerLabel").asString()).isEqualTo("Ben");
+        assertThat(updatedBody.get("sortOrder").asInt()).isEqualTo(5);
+        assertThat(updatedBody.get("openingAmount").asString()).isEqualTo("1000");
+        assertThat(updatedBody.get("openedOn").asString()).isEqualTo("2026-01-10");
+        assertThat(updatedBody.get("currentBalance").asString()).isEqualTo("1000");
+        assertThat(updatedBody.get("version").asLong()).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                        """
+                        select r.amount::text from financial_transaction t
+                        join transaction_revision r
+                          on r.household_id = t.household_id
+                         and r.transaction_id = t.id
+                         and r.revision_no = t.current_revision_no
+                        where t.opening_account_id = ?
+                        """,
+                        String.class,
+                        UUID.fromString(accountId)))
+                .isEqualTo("1000");
+        assertThat(jdbc.queryForObject(
+                        "select opened_on::text from account where id = ?", String.class, UUID.fromString(accountId)))
+                .isEqualTo("2026-01-10");
+
+        ResponseEntity<String> memberUpdate = rest.exchange(
+                "/api/v1/households/" + householdId + "/accounts/" + accountId,
+                HttpMethod.PUT,
+                jsonEntity(
+                        """
+                        {"name":"Nope"}
+                        """,
+                        member.cookie(),
+                        member,
+                        null),
+                String.class);
+        assertThat(memberUpdate.getStatusCode().value()).isEqualTo(403);
+
+        ResponseEntity<String> empty = rest.exchange(
+                "/api/v1/households/" + householdId + "/accounts/" + accountId,
+                HttpMethod.PUT,
+                jsonEntity("{}", admin.cookie(), admin, null),
+                String.class);
+        assertThat(empty.getStatusCode().value()).isEqualTo(400);
+
+        ResponseEntity<String> missing = rest.exchange(
+                "/api/v1/households/" + householdId + "/accounts/" + UUID.randomUUID(),
+                HttpMethod.PUT,
+                jsonEntity(
+                        """
+                        {"name":"Ghost"}
+                        """,
+                        admin.cookie(),
+                        admin,
+                        null),
+                String.class);
+        assertThat(missing.getStatusCode().value()).isEqualTo(404);
+    }
+
+    @Test
     void refusesWhilePasswordChangeRequired() {
         jdbc.update("UPDATE app_user SET must_change_password = true, password_changed_at = null WHERE id = ?", adminId);
         Session admin = login("admin@example.com", "correct-password");

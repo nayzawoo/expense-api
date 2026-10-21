@@ -3,6 +3,7 @@ package com.nayzawoo.expense.account;
 import com.nayzawoo.expense.identity.ExpenseUser;
 import com.nayzawoo.expense.identity.FinancialAccess;
 import com.nayzawoo.expense.identity.FinancialAccess.LockedHouseholdActor;
+import com.nayzawoo.expense.shared.AuditEventWriter;
 import com.nayzawoo.expense.shared.Money;
 import java.math.BigDecimal;
 import java.sql.Date;
@@ -13,6 +14,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -33,6 +35,7 @@ class AccountService {
     private final AccountRepository accounts;
     private final OpeningWriteService openings;
     private final IdempotencyService idempotency;
+    private final AuditEventWriter audit;
     private final NamedParameterJdbcTemplate jdbc;
     private final Clock clock;
     private final JsonMapper json = JsonMapper.builder().build();
@@ -42,12 +45,14 @@ class AccountService {
             AccountRepository accounts,
             OpeningWriteService openings,
             IdempotencyService idempotency,
+            AuditEventWriter audit,
             JdbcTemplate jdbc,
             Clock clock) {
         this.financialAccess = financialAccess;
         this.accounts = accounts;
         this.openings = openings;
         this.idempotency = idempotency;
+        this.audit = audit;
         this.jdbc = new NamedParameterJdbcTemplate(jdbc);
         this.clock = clock;
     }
@@ -308,6 +313,83 @@ class AccountService {
         return new CreateResult(false, 201, accountId, body);
     }
 
+    /**
+     * Admin metadata update: name, ownerLabel, sortOrder, and display type.
+     * Opening amount/date and currency remain immutable.
+     */
+    @Transactional
+    AccountView update(
+            ExpenseUser actor,
+            UUID householdId,
+            UUID accountId,
+            String name,
+            String ownerLabel,
+            String type,
+            Integer sortOrder) {
+        LockedHouseholdActor locked = financialAccess.lockForFinancialWrite(actor, householdId);
+        if (!locked.admin()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+        }
+        if (name == null && ownerLabel == null && type == null && sortOrder == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        Account account = accounts
+                .findByIdAndHouseholdId(accountId, locked.householdId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        String previousName = account.getName();
+        String previousOwner = account.getOwnerLabel();
+        String previousType = account.getType();
+        int previousSort = account.getSortOrder();
+
+        String nextName = name == null ? null : requireLabel(name);
+        String nextOwner = ownerLabel == null ? null : requireLabel(ownerLabel);
+        String nextType = type == null ? null : requireType(type);
+        if (sortOrder == null && nextName == null && nextOwner == null && nextType == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+
+        account.updateMetadata(nextName, nextOwner, nextType, sortOrder, Instant.now(clock));
+        Account saved = accounts.save(account);
+
+        if (nextName != null && !normalize(nextName).equals(normalize(previousName))) {
+            audit.record(
+                    locked.householdId(),
+                    locked.userId(),
+                    "ACCOUNT_RENAMED",
+                    "ACCOUNT",
+                    saved.getId(),
+                    "{\"previousName\":\""
+                            + AuditEventWriter.escape(previousName)
+                            + "\",\"newName\":\""
+                            + AuditEventWriter.escape(saved.getName())
+                            + "\"}");
+        }
+        if ((nextOwner != null && !nextOwner.equals(previousOwner))
+                || (nextType != null && !nextType.equals(previousType))
+                || (sortOrder != null && sortOrder != previousSort)) {
+            audit.record(
+                    locked.householdId(),
+                    locked.userId(),
+                    "ACCOUNT_UPDATED",
+                    "ACCOUNT",
+                    saved.getId(),
+                    "{\"name\":\""
+                            + AuditEventWriter.escape(saved.getName())
+                            + "\",\"ownerLabel\":\""
+                            + AuditEventWriter.escape(saved.getOwnerLabel())
+                            + "\",\"type\":\""
+                            + AuditEventWriter.escape(saved.getType())
+                            + "\",\"sortOrder\":"
+                            + saved.getSortOrder()
+                            + "}");
+        }
+
+        LocalDate asOf = householdToday(locked.timezone());
+        Map<UUID, BigDecimal> balances = balancesAsOf(locked.householdId(), List.of(saved), asOf);
+        Map<UUID, BigDecimal> openings = openingAmounts(locked.householdId(), List.of(saved));
+        return toView(saved, openings.get(saved.getId()), balances.get(saved.getId()), asOf);
+    }
+
     private LocalDate householdToday(String timezone) {
         return LocalDate.now(clock.withZone(ZoneId.of(timezone)));
     }
@@ -398,6 +480,28 @@ class AccountService {
 
     private static boolean isType(String type) {
         return "BANK".equals(type) || "WALLET".equals(type) || "CASH".equals(type);
+    }
+
+    private static String requireType(String type) {
+        if (!isType(type)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        return type;
+    }
+
+    private static String requireLabel(String value) {
+        if (value == null || value.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() > 120 || containsLineBreak(trimmed)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        return trimmed;
+    }
+
+    private static String normalize(String name) {
+        return name.trim().toLowerCase(Locale.ROOT);
     }
 
     private static boolean containsLineBreak(String value) {

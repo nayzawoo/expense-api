@@ -80,6 +80,24 @@ class Account {
         return account;
     }
 
+    /** Metadata-only update. Opening date/amount and currency stay immutable. */
+    void updateMetadata(String name, String ownerLabel, String type, Integer sortOrder, Instant now) {
+        if (name != null) {
+            this.name = name;
+        }
+        if (ownerLabel != null) {
+            this.ownerLabel = ownerLabel;
+        }
+        if (type != null) {
+            this.type = type;
+        }
+        if (sortOrder != null) {
+            this.sortOrder = sortOrder;
+        }
+        this.version++;
+        this.updatedAt = now;
+    }
+
     UUID getId() {
         return id;
     }

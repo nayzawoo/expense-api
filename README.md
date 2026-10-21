@@ -63,7 +63,12 @@ postings as of the household's current local date.
 Active members may list and read categories and beneficiaries under
 `/api/v1/households/{householdId}/categories` and
 `/api/v1/households/{householdId}/beneficiaries`. Admins create, update, and
-archive those references. Bootstrap seeds collective `Household` and `Other`
+archive those references. Category `iconKey` values are `food`, `transport`,
+`home`, `health`, `shopping`, `bills`, `education`, `entertainment`, `other`,
+`groceries`, `dining`, `coffee`, `car`, `fuel`, `travel`, `utilities`, `phone`,
+`internet`, `rent`, `clothing`, `beauty`, `fitness`, `pets`, `gifts`, `family`,
+`work`, `insurance`, `savings`, `charity`, and `subscriptions`. Unsupported
+keys are rejected. Bootstrap seeds collective `Household` and `Other`
 beneficiaries. Bulk order ETag routes are not included yet.
 
 Active members may create expenses under

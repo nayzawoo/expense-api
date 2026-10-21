@@ -129,6 +129,24 @@ Recover an existing active admin without HTTP by supplying a runtime password:
 --expense.recovery.admin-password=$RECOVERY_ADMIN_PASSWORD"
 ```
 
+## Command shortcuts
+
+Run `make` or `make help` to list available shortcuts. Common commands:
+
+```bash
+make compile                         # Fast compile feedback
+make test                            # Unit tests only
+make test-focused TEST=ProfileIT     # Selected integration tests (requires Docker)
+make check                           # Full Maven verification, then container smoke tests
+make up                              # Build and start local containers
+make logs                            # Follow container logs
+make health                          # Check API readiness and liveness
+make down                            # Stop containers, retaining database data
+```
+
+`make build` packages the application without running tests. `make run` starts it
+outside Compose and requires a separately provisioned database, as described below.
+
 ## Local containers
 
 Install Docker with Compose v2 and start its engine, then run:

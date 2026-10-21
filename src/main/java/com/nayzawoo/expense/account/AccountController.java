@@ -12,6 +12,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -83,8 +84,27 @@ class AccountController {
                 .body(result.responseBody());
     }
 
+    @PutMapping("/{accountId}")
+    AccountResponse update(
+            @AuthenticationPrincipal ExpenseUser actor,
+            @PathVariable UUID householdId,
+            @PathVariable UUID accountId,
+            @RequestBody UpdateAccountRequest request) {
+        return AccountResponse.from(accounts.update(
+                actor,
+                householdId,
+                accountId,
+                request == null ? null : request.name(),
+                request == null ? null : request.ownerLabel(),
+                request == null ? null : request.type(),
+                request == null ? null : request.sortOrder()));
+    }
+
     record CreateAccountRequest(
             String name, String type, String ownerLabel, LocalDate openedOn, String openingAmount, Integer sortOrder) {}
+
+    /** Metadata fields only; openingAmount/openedOn/currency are rejected by omission (immutable). */
+    record UpdateAccountRequest(String name, String type, String ownerLabel, Integer sortOrder) {}
 
     record LedgerResponse(
             String accountId,

@@ -179,6 +179,104 @@ class MetadataIT {
                 .doesNotContain("correct-password");
     }
 
+    @Test
+    void adminAcceptsSupportedCategoryIconsAndRejectsUnknownKeys() {
+        Session admin = login("admin@example.com", "correct-password");
+        String[] iconKeys = {
+            "food",
+            "transport",
+            "home",
+            "health",
+            "shopping",
+            "bills",
+            "education",
+            "entertainment",
+            "other",
+            "groceries",
+            "dining",
+            "coffee",
+            "car",
+            "fuel",
+            "travel",
+            "utilities",
+            "phone",
+            "internet",
+            "rent",
+            "clothing",
+            "beauty",
+            "fitness",
+            "pets",
+            "gifts",
+            "family",
+            "work",
+            "insurance",
+            "savings",
+            "charity",
+            "subscriptions"
+        };
+        assertThat(iconKeys).hasSize(30);
+
+        ResponseEntity<String> createdGroceries = rest.exchange(
+                "/api/v1/households/" + householdId + "/categories",
+                HttpMethod.POST,
+                jsonEntity(
+                        "{\"name\":\"Groceries\",\"color\":\"#AABBCC\",\"iconKey\":\"groceries\",\"sortOrder\":1}",
+                        admin.cookie(),
+                        admin),
+                String.class);
+        assertThat(createdGroceries.getStatusCode().value()).isEqualTo(201);
+        JsonNode groceriesBody = json.readTree(createdGroceries.getBody());
+        assertThat(groceriesBody.get("iconKey").asString()).isEqualTo("groceries");
+        String groceriesId = groceriesBody.get("id").asString();
+
+        ResponseEntity<String> updatedDining = rest.exchange(
+                "/api/v1/households/" + householdId + "/categories/" + groceriesId,
+                HttpMethod.PUT,
+                jsonEntity("{\"iconKey\":\"dining\"}", admin.cookie(), admin),
+                String.class);
+        assertThat(updatedDining.getStatusCode().value()).isEqualTo(200);
+        assertThat(json.readTree(updatedDining.getBody()).get("iconKey").asString()).isEqualTo("dining");
+
+        for (int i = 0; i < iconKeys.length; i++) {
+            ResponseEntity<String> created = rest.exchange(
+                    "/api/v1/households/" + householdId + "/categories",
+                    HttpMethod.POST,
+                    jsonEntity(
+                            "{\"name\":\"Icon %d\",\"color\":\"#112233\",\"iconKey\":\"%s\",\"sortOrder\":%d}"
+                                    .formatted(i, iconKeys[i], i),
+                            admin.cookie(),
+                            admin),
+                    String.class);
+            assertThat(created.getStatusCode().value()).isEqualTo(201);
+            assertThat(json.readTree(created.getBody()).get("iconKey").asString()).isEqualTo(iconKeys[i]);
+        }
+
+        ResponseEntity<String> invalidCreate = rest.exchange(
+                "/api/v1/households/" + householdId + "/categories",
+                HttpMethod.POST,
+                jsonEntity(
+                        "{\"name\":\"Unknown\",\"color\":\"#AABBCC\",\"iconKey\":\"unknown\",\"sortOrder\":99}",
+                        admin.cookie(),
+                        admin),
+                String.class);
+        assertThat(invalidCreate.getStatusCode().value()).isEqualTo(400);
+
+        ResponseEntity<String> invalidUpdate = rest.exchange(
+                "/api/v1/households/" + householdId + "/categories/" + groceriesId,
+                HttpMethod.PUT,
+                jsonEntity("{\"iconKey\":\"unknown\"}", admin.cookie(), admin),
+                String.class);
+        assertThat(invalidUpdate.getStatusCode().value()).isEqualTo(400);
+
+        ResponseEntity<String> unchanged = rest.exchange(
+                "/api/v1/households/" + householdId + "/categories/" + groceriesId,
+                HttpMethod.GET,
+                jsonEntity(null, admin.cookie(), null),
+                String.class);
+        assertThat(unchanged.getStatusCode().value()).isEqualTo(200);
+        assertThat(json.readTree(unchanged.getBody()).get("iconKey").asString()).isEqualTo("dining");
+    }
+
     private Session login(String email, String password) {
         Session csrf = csrf();
         ResponseEntity<String> result = rest.exchange(

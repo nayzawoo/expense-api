@@ -20,7 +20,36 @@ class CategoryService {
 
     private static final Pattern COLOR = Pattern.compile("^#[0-9A-Fa-f]{6}$");
     private static final Set<String> ICON_KEYS = Set.of(
-            "food", "transport", "home", "health", "shopping", "bills", "education", "entertainment", "other");
+            "food",
+            "transport",
+            "home",
+            "health",
+            "shopping",
+            "bills",
+            "education",
+            "entertainment",
+            "other",
+            "groceries",
+            "dining",
+            "coffee",
+            "car",
+            "fuel",
+            "travel",
+            "utilities",
+            "phone",
+            "internet",
+            "rent",
+            "clothing",
+            "beauty",
+            "fitness",
+            "pets",
+            "gifts",
+            "family",
+            "work",
+            "insurance",
+            "savings",
+            "charity",
+            "subscriptions");
 
     private final CategoryRepository categories;
     private final FinancialAccess financialAccess;

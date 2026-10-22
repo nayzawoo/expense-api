@@ -205,7 +205,7 @@ class CategoryService {
     }
 
     private static String requireIcon(String iconKey) {
-        if (iconKey == null || !ICON_KEYS.contains(iconKey)) {
+        if (iconKey == null || (!ICON_KEYS.contains(iconKey) && !CategoryIconCatalog.contains(iconKey))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
         }
         return iconKey;

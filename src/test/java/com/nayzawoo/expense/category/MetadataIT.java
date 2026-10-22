@@ -86,6 +86,30 @@ class MetadataIT {
     }
 
     @Test
+    void lucideCatalogKeysRoundTripAndUnknownNamesAreRejected() {
+        Session admin = login("admin@example.com", "correct-password");
+        String path = "/api/v1/households/" + householdId + "/categories";
+        ResponseEntity<String> created = rest.exchange(
+                path, HttpMethod.POST,
+                jsonEntity("{\"name\":\"Fruit\",\"color\":\"#112233\",\"iconKey\":\"lucide:apple\",\"sortOrder\":1}",
+                        admin.cookie(), admin), String.class);
+        assertThat(created.getStatusCode().value()).isEqualTo(201);
+        JsonNode body = json.readTree(created.getBody());
+        assertThat(body.get("iconKey").asString()).isEqualTo("lucide:apple");
+        ResponseEntity<String> updated = rest.exchange(
+                path + "/" + body.get("id").asString(), HttpMethod.PUT,
+                jsonEntity("{\"iconKey\":\"lucide:landmark\"}", admin.cookie(), admin), String.class);
+        assertThat(updated.getStatusCode().value()).isEqualTo(200);
+        assertThat(json.readTree(updated.getBody()).get("iconKey").asString()).isEqualTo("lucide:landmark");
+        for (String key : new String[] {"lucide:not-a-real-icon", "lucide:../apple", "lucide:Apple"}) {
+            ResponseEntity<String> rejected = rest.exchange(
+                    path + "/" + body.get("id").asString(), HttpMethod.PUT,
+                    jsonEntity("{\"iconKey\":\"" + key + "\"}", admin.cookie(), admin), String.class);
+            assertThat(rejected.getStatusCode().value()).isEqualTo(400);
+        }
+    }
+
+    @Test
     void adminManagesCategoriesAndBeneficiariesWhileMembersRead() {
         Session admin = login("admin@example.com", "correct-password");
         Session member = login("member@example.com", "correct-password");

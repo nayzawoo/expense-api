@@ -68,7 +68,12 @@ archive those references. Category `iconKey` values are `food`, `transport`,
 `groceries`, `dining`, `coffee`, `car`, `fuel`, `travel`, `utilities`, `phone`,
 `internet`, `rent`, `clothing`, `beauty`, `fitness`, `pets`, `gifts`, `family`,
 `work`, `insurance`, `savings`, `charity`, and `subscriptions`. Unsupported
-keys are rejected. Bootstrap seeds collective `Household` and `Other`
+keys are rejected. Additionally, `lucide:<kebab-case-name>` keys from the bundled
+Lucide 1.59.0 catalog (2,159 names, including aliases) are accepted; for example
+`lucide:landmark` and `lucide:apple`. Names are checked against an exact allowlist,
+not arbitrary SVG or a permissive name pattern. Existing semantic keys keep their
+meaning. Catalog upgrades must update the browser picker and API allowlist together.
+Bootstrap seeds collective `Household` and `Other`
 beneficiaries. Bulk order ETag routes are not included yet.
 
 Active members may create expenses under

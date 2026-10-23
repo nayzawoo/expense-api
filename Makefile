@@ -2,8 +2,9 @@
 
 MVN := ./mvnw --no-transfer-progress
 COMPOSE := docker compose
+LOCAL_COMPOSE := $(COMPOSE) -f compose.yaml -f compose.local.yaml
 
-.PHONY: help compile build run test test-focused verify smoke check clean up down logs ps health
+.PHONY: help compile build run db-up test test-focused verify smoke check clean up down logs ps health
 
 help: ## Show available shortcuts
 	@awk 'BEGIN { FS = ":.*## " } /^[a-zA-Z_-]+:.*## / { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -14,8 +15,12 @@ compile: ## Compile application sources
 build: ## Package the application without running tests
 	$(MVN) -DskipTests package
 
-run: ## Run locally (requires a separately provisioned database)
+run: db-up ## Run Spring locally with PostgreSQL in Docker
 	$(MVN) spring-boot:run
+
+db-up: ## Stop the container API and start PostgreSQL on localhost:5432
+	$(COMPOSE) stop api
+	$(LOCAL_COMPOSE) up -d --wait postgres
 
 test: ## Run unit tests only
 	$(MVN) test

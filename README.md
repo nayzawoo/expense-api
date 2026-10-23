@@ -154,8 +154,12 @@ make health                          # Check API readiness and liveness
 make down                            # Stop containers, retaining database data
 ```
 
-`make build` packages the application without running tests. `make run` starts it
-outside Compose and requires a separately provisioned database, as described below.
+`make build` packages the application without running tests. `make run` starts
+PostgreSQL in Docker and Spring locally. It stops the container API and uses
+`compose.local.yaml` to publish PostgreSQL only on `127.0.0.1:5432`, retaining the
+existing database volume. Stop the local Spring process with Ctrl+C. For an IDE,
+run `make db-up` first, then start `ExpenseApiApplication` with its default database
+settings. `make up` switches back to the complete container stack.
 
 ## Local containers
 
@@ -207,8 +211,9 @@ not built into the API image.
 
 Outside Compose, the application accepts `DATABASE_URL`, `DATABASE_USERNAME` and
 `DATABASE_PASSWORD`. The default URL is `jdbc:postgresql://localhost:5432/expense`;
-it requires a separately provisioned development database. The Compose database is
-not host-accessible. Do not add host port mappings to work around this isolation.
+it connects to the development database started by `make db-up` or `make run`.
+The default Compose stack is not host-accessible; the explicit local override
+publishes only PostgreSQL for local Spring development.
 Database connection/validation timeouts are bounded for responsive readiness checks.
 
 ## Existing PostgreSQL data

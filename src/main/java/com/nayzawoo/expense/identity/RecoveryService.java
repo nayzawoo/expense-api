@@ -38,7 +38,27 @@ class RecoveryService {
         if (!"ADMIN".equals(user.getRole()) || !"ACTIVE".equals(user.getStatus())) {
             throw new IllegalStateException("Recovery target must be an active admin");
         }
-        user.recoverAccess(passwordEncoder.encode(adminPassword));
+        resetPasswordForUser(user, adminPassword);
+        return new RecoveryResult(user.getId(), user.getEmail(), user.getSecurityVersion());
+    }
+
+    @Transactional
+    void resetPassword(String userEmail, String password) {
+        if (userEmail == null || userEmail.isBlank() || password == null || password.isBlank()
+                || password.length() < PasswordChangeService.MINIMUM_PASSWORD_LENGTH) {
+            throw new IllegalArgumentException("An email and password of at least "
+                    + PasswordChangeService.MINIMUM_PASSWORD_LENGTH + " characters are required");
+        }
+        AppUser user = users.findByEmail(AppUserDetailsService.normalize(userEmail))
+                .orElseThrow(() -> new IllegalStateException("User not found"));
+        if (!"ACTIVE".equals(user.getStatus())) {
+            throw new IllegalStateException("Password reset target must be active");
+        }
+        resetPasswordForUser(user, password);
+    }
+
+    private void resetPasswordForUser(AppUser user, String password) {
+        user.recoverAccess(passwordEncoder.encode(password));
         users.save(user);
         audit.record(
                 user.getHouseholdId(),
@@ -48,7 +68,6 @@ class RecoveryService {
                 user.getId(),
                 IdentityAuditService.targetUserDetails(user.getId()));
         sessionRevocation.revokeAllForEmail(user.getEmail());
-        return new RecoveryResult(user.getId(), user.getEmail(), user.getSecurityVersion());
     }
 
     record RecoveryResult(java.util.UUID userId, String adminEmail, long securityVersion) {}

@@ -85,6 +85,44 @@ class RecoveryAuthRefreshIT {
     }
 
     @Test
+    void operatorCanResetMemberPasswordWithoutChangingOtherUsers() {
+        UUID memberId = UUID.randomUUID();
+        insertUser(memberId, "ben@example.com", "member-password", "MEMBER", "ACTIVE", false);
+        Session member = login("ben@example.com", "member-password");
+        Session admin = login("ada@example.com", "correct-password");
+
+        recoveryService.resetPassword(" Ben@Example.com ", "new-member-password");
+
+        assertThat(rest.exchange("/api/v1/auth/me", HttpMethod.GET,
+                jsonEntity(null, member.cookie(), null), String.class).getStatusCode().value()).isEqualTo(401);
+        assertThat(rest.exchange("/api/v1/auth/me", HttpMethod.GET,
+                jsonEntity(null, admin.cookie(), null), String.class).getStatusCode().value()).isEqualTo(200);
+        assertThat(login("ben@example.com", "new-member-password").body()
+                .get("mustChangePassword").asBoolean()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT security_version FROM app_user WHERE id = ?",
+                Long.class, memberId)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit_event WHERE event_type = 'OPERATOR_RECOVERY' AND resource_id = ?",
+                Long.class, memberId)).isEqualTo(1L);
+    }
+
+    @Test
+    void operatorResetRejectsUnknownDisabledAndInvalidTargetsWithoutChangingPasswords() {
+        assertThatThrownBy(() -> recoveryService.resetPassword("unknown@example.com", "replacement-password"))
+                .isInstanceOf(IllegalStateException.class).hasMessage("User not found");
+        assertThatThrownBy(() -> recoveryService.resetPassword("ada@example.com", "short"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> recoveryService.resetPassword("ada@example.com", "        "))
+                .isInstanceOf(IllegalArgumentException.class);
+        login("ada@example.com", "correct-password");
+        jdbc.update("UPDATE app_user SET status = 'DISABLED' WHERE id = ?", adminId);
+        assertThatThrownBy(() -> recoveryService.resetPassword("ada@example.com", "replacement-password"))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("must be active");
+        assertThat(jdbc.queryForObject("SELECT security_version FROM app_user WHERE id = ?",
+                Long.class, adminId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit_event", Long.class)).isZero();
+    }
+
+    @Test
     void recoveryResetsAdminAndRevokesSessions() {
         Session admin = login("ada@example.com", "correct-password");
         RecoveryService.RecoveryResult result = recoveryService.recover("Ada@Example.com", "recovered-password");

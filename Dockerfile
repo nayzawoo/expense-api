@@ -10,7 +10,14 @@ RUN --mount=type=cache,id=expense-api-maven,target=/root/.m2,sharing=locked \
     ./mvnw --batch-mode --no-transfer-progress -Dmaven.test.skip=true package
 
 FROM eclipse-temurin:21-jre-noble@sha256:000fd431958bc81a24abe1e8e5f0f0fd3ae365a594bd50aadb20696805f9408c AS runtime
-RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --no-create-home app
+# Apply current Ubuntu security updates on top of the pinned base digest so
+# Trivy HIGH/CRITICAL OS findings with published fixes (for example libbrotli1)
+# do not fail CI while the digest remains reproducible as the starting point.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && groupadd --gid 10001 app \
+    && useradd --uid 10001 --gid app --no-create-home app \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build --chown=10001:10001 /build/target/expense.jar /app/app.jar
 USER 10001:10001

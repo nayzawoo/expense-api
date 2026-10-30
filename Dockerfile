@@ -12,7 +12,7 @@ RUN --mount=type=cache,id=expense-api-maven,target=/root/.m2,sharing=locked \
 FROM eclipse-temurin:21-jre-noble@sha256:000fd431958bc81a24abe1e8e5f0f0fd3ae365a594bd50aadb20696805f9408c AS runtime
 RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --no-create-home app
 WORKDIR /app
-COPY --from=build --chown=10001:10001 /build/target/expense-api-*.jar /app/app.jar
+COPY --from=build --chown=10001:10001 /build/target/expense.jar /app/app.jar
 USER 10001:10001
 EXPOSE 8080
 HEALTHCHECK --interval=5s --timeout=5s --start-period=60s --retries=12 \

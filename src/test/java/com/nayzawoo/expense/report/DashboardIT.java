@@ -172,6 +172,10 @@ class DashboardIT {
         assertThat(body.get("spendingPace").get(14).get("currentCumulative").asString()).isEqualTo("50");
         assertThat(body.get("categoryBreakdown").size()).isEqualTo(1);
         assertThat(body.get("categoryBreakdown").get(0).get("amount").asString()).isEqualTo("50");
+        assertThat(body.get("categoryBreakdown").get(0).get("category").get("color").asString()).isEqualTo("#AABBCC");
+        assertThat(body.get("categoryBreakdown").get(0).get("category").get("iconKey").asString()).isEqualTo("food");
+        assertThat(body.get("categoryChanges").get("increased").get(0).get("category").get("color").asString())
+                .isEqualTo("#AABBCC");
         assertThat(body.get("categoryBreakdown").get(0).get("sharePercent").asString()).isEqualTo("100.0");
         assertThat(body.get("beneficiarySpending").size()).isEqualTo(1);
         assertThat(body.get("beneficiarySpending").get(0).get("amount").asString()).isEqualTo("50");

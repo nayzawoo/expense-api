@@ -166,7 +166,7 @@ class ReportService {
                         : categoryChanges.decreased())
                 .stream()
                 .limit(2)
-                .map(CategoryChangeResponse::category)
+                .map(change -> new RefResponse(change.category().id(), change.category().name()))
                 .toList();
         return new InsightResponse(
                 direction,
@@ -335,7 +335,7 @@ class ReportService {
                         .reversed()
                         .thenComparing(NamedAmount::id))
                 .map(row -> new CategoryBreakdownResponse(
-                        new RefResponse(row.id().toString(), row.name()),
+                        new CategoryRefResponse(row.id().toString(), row.name(), row.color(), row.iconKey()),
                         Money.format(row.amount()),
                         sharePercent(row.amount(), totalExpense).toPlainString()))
                 .toList();
@@ -358,7 +358,10 @@ class ReportService {
             boolean isNew = previousAmount.compareTo(BigDecimal.ZERO) == 0
                     && currentAmount.compareTo(BigDecimal.ZERO) > 0;
             all.add(new CategoryChangeResponse(
-                    new RefResponse(id.toString(), names.get(id)),
+                    new CategoryRefResponse(
+                            id.toString(), names.get(id),
+                            (current.containsKey(id) ? current.get(id) : previous.get(id)).color(),
+                            (current.containsKey(id) ? current.get(id) : previous.get(id)).iconKey()),
                     Money.format(currentAmount),
                     Money.format(previousAmount),
                     Money.format(difference),
@@ -423,7 +426,7 @@ class ReportService {
         Map<UUID, NamedAmount> rows = new HashMap<>();
         jdbc.query(
                 """
-                SELECT c.id, c.name, COALESCE(SUM(r.amount), 0)
+                SELECT c.id, c.name, COALESCE(SUM(r.amount), 0), c.color, c.icon_key
                 FROM financial_transaction t
                 JOIN transaction_revision r
                   ON r.household_id = t.household_id
@@ -437,11 +440,11 @@ class ReportService {
                   AND r.state = 'POSTED'
                   AND r.effective_date >= ?
                   AND r.effective_date <= ?
-                GROUP BY c.id, c.name
+                GROUP BY c.id, c.name, c.color, c.icon_key
                 """,
                 rs -> {
                     UUID id = rs.getObject(1, UUID.class);
-                    rows.put(id, new NamedAmount(id, rs.getString(2), rs.getBigDecimal(3)));
+                    rows.put(id, new NamedAmount(id, rs.getString(2), rs.getBigDecimal(3), rs.getString(4), rs.getString(5)));
                 },
                 householdId,
                 Date.valueOf(from),
@@ -758,10 +761,12 @@ class ReportService {
 
     record PacePointResponse(int day, String currentCumulative, String previousCumulative, String expense) {}
 
-    record CategoryBreakdownResponse(RefResponse category, String amount, String sharePercent) {}
+    record CategoryRefResponse(String id, String name, String color, String iconKey) {}
+
+    record CategoryBreakdownResponse(CategoryRefResponse category, String amount, String sharePercent) {}
 
     record CategoryChangeResponse(
-            RefResponse category,
+            CategoryRefResponse category,
             String currentAmount,
             String previousAmount,
             String difference,
@@ -788,5 +793,9 @@ class ReportService {
 
     private record AccountOpening(UUID id, LocalDate openedOn) {}
 
-    private record NamedAmount(UUID id, String name, BigDecimal amount) {}
+    private record NamedAmount(UUID id, String name, BigDecimal amount, String color, String iconKey) {
+        NamedAmount(UUID id, String name, BigDecimal amount) {
+            this(id, name, amount, null, null);
+        }
+    }
 }

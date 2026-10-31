@@ -162,6 +162,10 @@ class AnalyticsIT {
         assertThat(prior.get("coverage").asString()).isEqualTo("UNCOVERED");
         assertThat(prior.get("expense").isNull()).isTrue();
         assertThat(body.get("categoryBreakdown").get(0).get("amount").asString()).isEqualTo("50");
+        assertThat(body.get("categoryBreakdown").get(0).get("category").get("color").asString()).isEqualTo("#AABBCC");
+        assertThat(body.get("categoryBreakdown").get(0).get("category").get("iconKey").asString()).isEqualTo("food");
+        assertThat(body.get("categoryChanges").get("increased").get(0).get("category").get("color").asString())
+                .isEqualTo("#AABBCC");
 
         ResponseEntity<String> future = rest.exchange(
                 "/api/v1/households/" + householdId + "/reports/analytics?asOf=2026-01-16",

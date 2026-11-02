@@ -6,6 +6,7 @@ case "${1:-}" in
         echo "Usage: make reset-data (or sh scripts/reset-data.sh)"
         echo "Permanently clears income, expense, transfer, adjustment and opening balances in Compose Postgres."
         echo "Keeps categories, members, accounts, beneficiaries, sessions and audit history."
+        echo "Requires typing confirm before any data is changed."
         exit 0
         ;;
     "") ;;
@@ -13,6 +14,13 @@ case "${1:-}" in
 esac
 if [ "$#" -gt 1 ]; then
     echo "Usage: sh scripts/reset-data.sh [--help]" >&2
+    exit 2
+fi
+
+echo "This permanently deletes all financial history and resets every account balance to zero."
+printf 'Type confirm to continue: '
+if ! IFS= read -r confirmation || [ "$confirmation" != "confirm" ]; then
+    echo "Reset cancelled. No data was changed." >&2
     exit 2
 fi
 

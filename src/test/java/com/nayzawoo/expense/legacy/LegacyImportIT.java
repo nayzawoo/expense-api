@@ -152,6 +152,86 @@ class LegacyImportIT {
         }
     }
 
+    @Test
+    void resetsFinancialHistoryAndBalancesWhileRetainingMetadataAndValidZeroOpenings() throws Exception {
+        write(LegacyImportPlanTest.plan(LegacyImportFixture.bytes()), true);
+        jdbc.update("UPDATE account SET status = 'ARCHIVED' WHERE name = 'Wallet'");
+        jdbc.update("""
+                INSERT INTO idempotency_record (id, household_id, actor_user_id, operation, key,
+                    request_hash, http_status, response_body, created_at, expires_at)
+                SELECT gen_random_uuid(), household_id, id, 'POST /api/v1/households/{householdId}/incomes',
+                    'old-income', repeat('a', 64), 201, '{}', now(), now() + interval '1 day'
+                FROM app_user
+                """);
+        var accounts = jdbc.queryForList("SELECT to_jsonb(a) - 'version' - 'balance_version' - 'updated_at' AS data FROM account a ORDER BY id");
+        var versions = jdbc.queryForList("SELECT id, version + 1 AS version, balance_version + 1 AS balance_version FROM account ORDER BY id");
+        var retained = new java.util.LinkedHashMap<String, java.util.List<java.util.Map<String, Object>>>();
+        for (String table : java.util.List.of("household", "app_user", "category", "beneficiary", "audit_event", "spring_session", "spring_session_attributes")) {
+            retained.put(table, jdbc.queryForList("SELECT * FROM " + table));
+        }
+
+        resetData();
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM financial_transaction WHERE kind <> 'OPENING'", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM account_posting", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM idempotency_record", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM transaction_revision WHERE amount <> 0", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM transaction_revision", Long.class)).isEqualTo(2L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM financial_transaction", Long.class)).isEqualTo(2L);
+        assertThat(jdbc.queryForList("SELECT to_jsonb(a) - 'version' - 'balance_version' - 'updated_at' AS data FROM account a ORDER BY id"))
+                .isEqualTo(accounts);
+        assertThat(jdbc.queryForList("SELECT id, version, balance_version FROM account ORDER BY id")).isEqualTo(versions);
+        retained.forEach((table, rows) -> assertThat(jdbc.queryForList("SELECT * FROM " + table)).containsExactlyInAnyOrderElementsOf(rows));
+        // Exercise the deferred opening validator against the rebuilt ledger, including archived accounts.
+        jdbc.execute("""
+                CREATE CONSTRAINT TRIGGER test_validate_reset_openings AFTER UPDATE ON account
+                DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION validate_account_opening()
+                """);
+        try {
+            jdbc.update("UPDATE account SET version = version");
+        } finally {
+            jdbc.execute("DROP TRIGGER test_validate_reset_openings ON account");
+        }
+        resetData();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM transaction_revision", Long.class)).isEqualTo(2L);
+    }
+
+    @Test
+    void resetFailureRollsBackFinancialHistoryAndAccountChanges() throws Exception {
+        write(LegacyImportPlanTest.plan(LegacyImportFixture.bytes()), true);
+        var postings = jdbc.queryForList("SELECT * FROM account_posting ORDER BY id");
+        var revisions = jdbc.queryForList("SELECT * FROM transaction_revision ORDER BY transaction_id, revision_no");
+        var accounts = jdbc.queryForList("SELECT * FROM account ORDER BY id");
+        jdbc.execute("ALTER TABLE account ADD CONSTRAINT test_reject_reset CHECK (balance_version < 0) NOT VALID");
+        try {
+            assertThatThrownBy(this::resetData).hasMessageContaining("test_reject_reset");
+            assertThat(jdbc.queryForList("SELECT * FROM account_posting ORDER BY id")).isEqualTo(postings);
+            assertThat(jdbc.queryForList("SELECT * FROM transaction_revision ORDER BY transaction_id, revision_no")).isEqualTo(revisions);
+            assertThat(jdbc.queryForList("SELECT * FROM account ORDER BY id")).isEqualTo(accounts);
+        } finally {
+            jdbc.execute("ALTER TABLE account DROP CONSTRAINT test_reject_reset");
+        }
+    }
+
+    @Test
+    void resetsAnEmptyDatabase() throws Exception {
+        resetData();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM financial_transaction", Long.class)).isZero();
+    }
+
+    private void resetData() throws Exception {
+        try (var connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
+            connection.setAutoCommit(false);
+            try (var statement = connection.createStatement()) {
+                statement.execute(Files.readString(Path.of("scripts/reset-data.sql")));
+                connection.commit();
+            } catch (Exception exception) {
+                connection.rollback();
+                throw exception;
+            }
+        }
+    }
+
     private LegacyImportWriter.Result writeReplacingBootstrap(LegacyImportPlan plan, boolean apply) throws Exception {
         try (var connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
             return new LegacyImportWriter().write(connection, plan, apply, importedAt, true);

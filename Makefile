@@ -4,7 +4,7 @@ MVN := ./mvnw --no-transfer-progress
 COMPOSE := docker compose
 LOCAL_COMPOSE := $(COMPOSE) -f compose.yaml -f compose.local.yaml
 
-.PHONY: help compile build run db-up test test-focused verify smoke check clean up down logs ps health
+.PHONY: help compile build run db-up reset-data test test-focused verify smoke check clean up down logs ps health
 
 help: ## Show available shortcuts
 	@awk 'BEGIN { FS = ":.*## " } /^[a-zA-Z_-]+:.*## / { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -21,6 +21,9 @@ run: db-up ## Run Spring locally with PostgreSQL in Docker
 db-up: ## Stop the container API and start PostgreSQL on localhost:5432
 	$(COMPOSE) stop api
 	$(LOCAL_COMPOSE) up -d --wait postgres
+
+reset-data: ## Delete all financial history and zero balances in Compose Postgres; keep accounts and members
+	sh scripts/reset-data.sh
 
 test: ## Run unit tests only
 	$(MVN) test
